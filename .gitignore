@@ -1,0 +1,37 @@
+# ---- 依赖 ----
+node_modules/
+
+# ---- 构建产物（双 tsc 生成；重建：pnpm run build）----
+dist/
+*.tsbuildinfo
+
+# ---- 日志 ----
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ---- 本地运行数据 ----
+# 正式数据在 $DSH_HOME/dsh-companion（仓库外）；此处兜底忽略任何本地散落数据
+data/
+*.sqlite
+*.sqlite3
+*.db
+# 桌宠窗口位置持久化（运行时状态；缺失时 electron 壳回落默认位置并自动重建）
+electron/pet-window.json
+
+# ---- 环境变量 ----
+.env
+.env.*
+
+# ---- 测试输出 / 覆盖率 ----
+coverage/
+*.lcov
+
+# ---- 编辑器 / 操作系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

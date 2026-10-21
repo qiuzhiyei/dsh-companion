@@ -1,0 +1,56 @@
+{
+  "name": "whale-ol",
+  "displayName": "鲸鱼娘·秘书OL风",
+  "version": "1.2.0",
+  "author": "WorkBuddy × dsh-companion",
+  "labels": {
+    "idle": "待机中",
+    "casting": "任务启动",
+    "waiting": "模型思考中…",
+    "hooked": "输出 / 工具执行中",
+    "reeling": "收尾中…",
+    "done": "任务完成",
+    "error": "任务出错",
+    "interrupted": "任务中断"
+  },
+  "states": {
+    "idle": {
+      "file": "idle.png"
+    },
+    "casting": {
+      "file": "casting.png"
+    },
+    "waiting": {
+      "file": "waiting.png"
+    },
+    "hooked": {
+      "file": "hooked.png"
+    },
+    "reeling": {
+      "file": "reeling.png"
+    },
+    "done": {
+      "file": "done.png"
+    },
+    "error": {
+      "file": "error.png"
+    },
+    "interrupted": {
+      "file": "interrupted.png"
+    }
+  },
+  "reactions": {
+    "pat": {
+      "file": "pat.png"
+    },
+    "angry": {
+      "file": "angry.png"
+    },
+    "dizzy": {
+      "file": "dizzy.png"
+    },
+    "drag": {
+      "file": "drag.png"
+    }
+  }
+}
