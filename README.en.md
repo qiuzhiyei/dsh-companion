@@ -65,25 +65,21 @@ price page.
 git clone https://github.com/qiuzhiyei/dsh-companion.git dsh-companion
 cd dsh-companion
 
-pnpm install
-pnpm run build          # required: dist/ must exist before installing into a profile
+pnpm install            # compiles dist/ for you via the prepare hook
 
 cd ..                   # `dsh plugin add` resolves paths against the invoking directory
 dsh plugin --profile <your-profile> add ./dsh-companion
 dsh --profile <your-profile>
 ```
 
-**Shorter path**: install straight from git — the build runs for you, no manual `pnpm run build`:
+> `pnpm install` runs the `prepare` hook (`scripts/prepare.mjs`), which compiles both tsconfigs
+> (node half + browser half) — so **there is no separate `pnpm run build` step**. Re-run `pnpm run build`
+> only when you want to rebuild after editing sources.
+>
+> Don't try the shortcut `dsh plugin add github:qiuzhiyei/dsh-companion`: pnpm 10+ refuses to run build
+> scripts of git dependencies (`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`), and this repo ships no `dist/`
+> — it has to be compiled on the spot, so the install is blocked.
 
-```sh
-dsh plugin --profile <your-profile> add github:qiuzhiyei/dsh-companion
-```
-
-> Equivalent to running `pnpm add github:qiuzhiyei/dsh-companion` inside the profile: the package
-> manager installs deps, then runs this repo's `prepare` hook (`scripts/prepare.mjs`) which compiles
-> `dist/`. Trade-off: it also pulls the devDependencies (electron, ~100 MB — set
-> `ELECTRON_SKIP_BINARY_DOWNLOAD=1` to skip its binary). On a slow machine, or if you only want the
-> browser half, the clone flow above is lighter.
 Once DSH starts:
 
 - **Sidebar badge**: one line at the bottom of the GUI (`today 30.98M tokens`); click it to open the full panel right inside the GUI

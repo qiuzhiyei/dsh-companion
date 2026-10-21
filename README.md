@@ -64,9 +64,8 @@ DeepSeek Harness（`dsh`）是「一切皆插件」的 agent harness，但跑长
 git clone https://github.com/qiuzhiyei/dsh-companion.git dsh-companion
 cd dsh-companion
 
-# 2. 装依赖 + 构建（必须先 build，dist/ 才会生成）
+# 2. 装依赖 —— 装完自动编译 dist/（仓库不含构建产物，靠 prepare 钩子现编）
 pnpm install
-pnpm run build
 
 # 3. 装进你的 DSH profile（路径相对「调用目录」，所以在插件的父目录执行）
 cd ..
@@ -76,16 +75,12 @@ dsh plugin --profile <你的 profile> add ./dsh-companion
 dsh --profile <你的 profile>
 ```
 
-**更省事的方式**：直接从 git 装，安装过程会自动编译 `dist/`（不必手动 build）：
+> `pnpm install` 会跑 `prepare`（`scripts/prepare.mjs`），把 node 半边和浏览器半边两份 tsconfig 都编译好，
+> 所以**不用再手动 `pnpm run build`**；改完源码想重建时再单独跑一次即可。
+>
+> 别图省事用 `dsh plugin add github:qiuzhiyei/dsh-companion`：pnpm 10+ 默认禁止 git 依赖执行构建脚本
+> （`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`），而本仓库不含 `dist/`、必须现场编，正好被这条规则卡住。
 
-```sh
-dsh plugin --profile <你的 profile> add github:qiuzhiyei/dsh-companion
-```
-
-> 这条等价于在 profile 目录里跑 `pnpm add github:qiuzhiyei/dsh-companion`：包管理器会先装依赖、
-> 再跑仓库里的 `prepare`（`scripts/prepare.mjs`）把 `dist/` 编出来。代价是它会连开发依赖一起装
-> （含 electron，约 100 MB；设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1` 可跳过它的二进制下载）。
-> 机器慢、只想要浏览器版的话，上面的 clone 流程更轻。
 跑起来后会看到：
 
 - **侧边栏角标**：GUI 底部一行 `今日 30.98M token`，点它直接在当前窗口弹出完整面板
