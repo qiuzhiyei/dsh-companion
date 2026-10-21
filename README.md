@@ -109,8 +109,35 @@ cd .. && dsh plugin --profile <你的 profile> add ./dsh-companion
 - **伴侣页**：`http://127.0.0.1:17573`（悬浮窗；端口被占会自动 +1，最多试 10 个）
 - **面板页**：`http://127.0.0.1:17573/panel`
 
-> 想让桌宠真的浮在桌面上（透明、置顶、点击穿透），再装一下可选壳：
-> `pnpm add -D electron`，然后什么都不用做——`server.shell: 'auto'` 会在插件启动时自动拉起它。
+> **桌宠默认是「浏览器页面模式」**：桌面悬浮窗需要一个可选壳，而 npm 包**不带** `electron`
+> （它在 `devDependencies` 里，100 MB+，故意不随包发）。想让她真的浮在桌面上，看下面一节。
+
+### 桌面悬浮桌宠（可选壳）
+
+给 **profile** 装一份 electron（不是装到插件目录）：
+
+```sh
+dsh plugin --profile <你的 profile> add -D electron
+```
+
+装完**完全退出 DSH 再重开**——插件启动时检测到 electron 就会自动拉起壳（`server.shell: 'auto'`），
+于是得到透明、置顶、点击穿透、带托盘菜单的桌面伴侣。
+
+> ⚠️ **pnpm 10+ 默认不跑依赖的 install 脚本**，而 electron 的二进制正是靠它下载的。如果装完
+> 仍然是浏览器模式（日志里有一行 `electron 未安装，伴侣以浏览器页面模式运行`），在 profile 的
+> `pnpm-workspace.yaml` 里放行它，然后重装：
+>
+> ```yaml
+> allowBuilds:
+>   electron: true
+> ```
+>
+> 也可以直接复用本机已有的 electron：版本相同时，把 `node_modules/electron/` 里的 `dist/`
+> 和 `path.txt` 拷进 profile 的 `node_modules/electron/` 即可（省掉 200 MB 下载）。
+> 国内下载慢就设 `$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"`。
+>
+> **什么都不装也能用**：浏览器打开 `http://127.0.0.1:17573` 就是同一只桌宠（只是没有托盘、
+> 没有鼠标穿透、不会浮在所有窗口之上）。
 
 ### 不想装 DSH，先看看它长什么样
 
