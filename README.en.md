@@ -8,6 +8,7 @@ desktop pet · usage & cost stats · budget alerts · GUI enhancements
 [中文](README.md) · [Quick start](#quick-start) · [Features](#features) · [Config](#config) · [Skins](#custom-skins)
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
+![npm](https://img.shields.io/npm/v/@qiuzhiyei/dsh-companion?label=npm&color=cb3837)
 ![release](https://img.shields.io/github/v/release/qiuzhiyei/dsh-companion?label=release&color=blue)
 ![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen)
 ![ci](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
@@ -61,6 +62,18 @@ price page.
 
 **Requirements**: Node.js `^22.19.0 || >=24.0.0`, [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (0.2.0-rc line), pnpm.
 
+### Option 1 — desktop GUI (no terminal needed)
+
+DSH desktop → **Plugin Manager** → **Install plugin** → pick the npm official registry or a mirror → enter:
+
+```
+@qiuzhiyei/dsh-companion
+```
+
+→ install → toggle the plugin **on** in the list → **fully quit DSH (including the tray) and relaunch**.
+
+### Option 2 — command line
+
 ```sh
 # recommended: from npm (uses your configured registry / mirror, immune to GitHub connectivity)
 dsh plugin --profile <your-profile> add @qiuzhiyei/dsh-companion
@@ -77,8 +90,13 @@ dsh --profile <your-profile>
 > nothing trips pnpm 10+'s "git dependencies may not run build scripts" gate.
 >
 > **Why the `@qiuzhiyei/` prefix**: the bare name `dsh-companion` on npm is already taken by another
-> author, so the release lives under the author's scope. The plugin's display name and behaviour in
-> DSH are unaffected.
+> author, so the release lives under the author's scope
+> ([npm page](https://www.npmjs.com/package/@qiuzhiyei/dsh-companion)). The plugin's display name and
+> behaviour in DSH are unaffected.
+
+> **Installed is not enabled**: the host only loads a plugin when its `insert` entry exists in the
+> profile's `cordis.patch.yml`, so you must toggle it **on** in the Plugin Manager above, then fully
+> quit (tray included) and relaunch DSH.
 
 **Hacking on the source?** Clone it and link it instead — edits take effect after `pnpm run build` + a restart:
 
@@ -216,7 +234,8 @@ node demo.mjs           # offline demo
 - installed as a link (`link:<path>`): rebuild + restart, no reinstall needed
 
 Architecture decisions and every pitfall we hit live in [AGENTS.md](AGENTS.md) (an onboarding
-document for AI collaborators) and [docs/pitfalls.md](docs/pitfalls.md).
+document for AI collaborators) and [docs/pitfalls.md](docs/pitfalls.md). The release procedure is in
+[npm发布.md](npm发布.md) (Chinese).
 
 ## Known limitations
 

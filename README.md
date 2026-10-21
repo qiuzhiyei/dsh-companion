@@ -8,6 +8,7 @@
 [English](README.en.md) · [快速开始](#快速开始) · [功能](#功能一览) · [配置](#配置) · [自制皮肤](#自制皮肤) · [开发](#开发)
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
+![npm](https://img.shields.io/npm/v/@qiuzhiyei/dsh-companion?label=npm&color=cb3837)
 ![release](https://img.shields.io/github/v/release/qiuzhiyei/dsh-companion?label=release&color=blue)
 ![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen)
 ![ci](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
@@ -59,6 +60,18 @@ DeepSeek Harness（`dsh`）是「一切皆插件」的 agent harness，但跑长
 
 **前置**：Node.js `^22.19.0 || >=24.0.0`、[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（目前 0.2.0-rc 线）、pnpm。
 
+### 方式一：桌面版 GUI（不用敲命令）
+
+DSH 桌面版 → **插件管理器** → **安装插件** → 源选「中国大陆镜像源」或「npm 官方源」→ 输入包名：
+
+```
+@qiuzhiyei/dsh-companion
+```
+
+→ 安装 → 在列表里把 **「DSH 伴侣」** 打开 **启用** → **完全退出 DSH（含托盘）再重开**。
+
+### 方式二：命令行
+
 ```sh
 # 推荐：从 npm 装（走你自己配的 registry / 国内镜像，不受 GitHub 连通性影响）
 dsh plugin --profile <你的 profile> add @qiuzhiyei/dsh-companion
@@ -76,7 +89,10 @@ dsh --profile <你的 profile>
 > 也不会撞上 pnpm 10+ 那条「git 依赖不准跑构建脚本」的拦截。
 >
 > **为什么包名带 `@qiuzhiyei/` 前缀**：npm 上 `dsh-companion` 这个无前缀名已被另一个作者占用，
-> 所以正式包发布在作者 scope 下；插件在 DSH 里的显示名与功能不受影响。
+> 所以正式包发布在作者 scope 下（[npm 页面](https://www.npmjs.com/package/@qiuzhiyei/dsh-companion)）；插件在 DSH 里的显示名与功能不受影响。
+
+> **装完不等于启用**：宿主只有在 profile 的 `cordis.patch.yml` 里看到该插件的 `insert` 条目才会加载它，
+> 必须在上面的**插件管理器里启用**，然后完全退出（含托盘）重开 DSH。
 
 **想改源码**（开发模式）就 clone 一份、用 link 方式挂进去，改完 `pnpm run build` + 重启即生效：
 
@@ -208,7 +224,7 @@ node demo.mjs         # 离线演示
 - 本项目是 link 安装（`link:<path>`）：改完 `pnpm run build` + 重启，不用重新 add
 
 写作约定、架构决策、踩过的坑都记在 [AGENTS.md](AGENTS.md)（这也是给 AI 协作者的交接书），
-公共 FAQ 与开发陷阱见 [docs/pitfalls.md](docs/pitfalls.md)。
+公共 FAQ 与开发陷阱见 [docs/pitfalls.md](docs/pitfalls.md)，**发版流程见 [npm发布.md](npm发布.md)**。
 
 ### 测试
 
