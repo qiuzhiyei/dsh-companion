@@ -8,9 +8,9 @@ desktop pet · usage & cost stats · budget alerts · GUI enhancements
 [中文](README.md) · [Quick start](#quick-start) · [Features](#features) · [Config](#config) · [Skins](#custom-skins)
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![version](https://img.shields.io/badge/version-v1.0.0-blue)
+![release](https://img.shields.io/github/v/release/qiuzhiyei/dsh-companion?label=release&color=blue)
 ![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen)
-![tests](https://img.shields.io/badge/tests-81%20passing-brightgreen)
+![ci](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
 ![topic](https://img.shields.io/badge/topic-dsh--plugin-8a2be2)
 
 <img src="docs/images/pet.png" width="220" alt="Desktop pet: whale girl, JK uniform" />
@@ -73,6 +73,17 @@ dsh plugin --profile <your-profile> add ./dsh-companion
 dsh --profile <your-profile>
 ```
 
+**Shorter path**: install straight from git — the build runs for you, no manual `pnpm run build`:
+
+```sh
+dsh plugin --profile <your-profile> add github:qiuzhiyei/dsh-companion
+```
+
+> Equivalent to running `pnpm add github:qiuzhiyei/dsh-companion` inside the profile: the package
+> manager installs deps, then runs this repo's `prepare` hook (`scripts/prepare.mjs`) which compiles
+> `dist/`. Trade-off: it also pulls the devDependencies (electron, ~100 MB — set
+> `ELECTRON_SKIP_BINARY_DOWNLOAD=1` to skip its binary). On a slow machine, or if you only want the
+> browser half, the clone flow above is lighter.
 Once DSH starts:
 
 - **Sidebar badge**: one line at the bottom of the GUI (`today 30.98M tokens`); click it to open the full panel right inside the GUI

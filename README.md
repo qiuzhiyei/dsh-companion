@@ -8,9 +8,9 @@
 [English](README.en.md) · [快速开始](#快速开始) · [功能](#功能一览) · [配置](#配置) · [自制皮肤](#自制皮肤) · [开发](#开发)
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![version](https://img.shields.io/badge/version-v1.0.0-blue)
+![release](https://img.shields.io/github/v/release/qiuzhiyei/dsh-companion?label=release&color=blue)
 ![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen)
-![tests](https://img.shields.io/badge/tests-81%20passing-brightgreen)
+![ci](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
 ![topic](https://img.shields.io/badge/topic-dsh--plugin-8a2be2)
 
 <img src="docs/images/pet.png" width="220" alt="桌宠：鲸鱼娘·JK 学院风" />
@@ -76,6 +76,16 @@ dsh plugin --profile <你的 profile> add ./dsh-companion
 dsh --profile <你的 profile>
 ```
 
+**更省事的方式**：直接从 git 装，安装过程会自动编译 `dist/`（不必手动 build）：
+
+```sh
+dsh plugin --profile <你的 profile> add github:qiuzhiyei/dsh-companion
+```
+
+> 这条等价于在 profile 目录里跑 `pnpm add github:qiuzhiyei/dsh-companion`：包管理器会先装依赖、
+> 再跑仓库里的 `prepare`（`scripts/prepare.mjs`）把 `dist/` 编出来。代价是它会连开发依赖一起装
+> （含 electron，约 100 MB；设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1` 可跳过它的二进制下载）。
+> 机器慢、只想要浏览器版的话，上面的 clone 流程更轻。
 跑起来后会看到：
 
 - **侧边栏角标**：GUI 底部一行 `今日 30.98M token`，点它直接在当前窗口弹出完整面板
