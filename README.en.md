@@ -62,23 +62,24 @@ price page.
 **Requirements**: Node.js `^22.19.0 || >=24.0.0`, [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (0.2.0-rc line), pnpm.
 
 ```sh
-git clone https://github.com/qiuzhiyei/dsh-companion.git dsh-companion
-cd dsh-companion
+# one command, straight from GitHub (the repo ships a compiled dist/, so it just works)
+dsh plugin --profile <your-profile> add github:qiuzhiyei/dsh-companion
 
-pnpm install            # compiles dist/ for you via the prepare hook
-
-cd ..                   # `dsh plugin add` resolves paths against the invoking directory
-dsh plugin --profile <your-profile> add ./dsh-companion
 dsh --profile <your-profile>
 ```
 
-> `pnpm install` runs the `prepare` hook (`scripts/prepare.mjs`), which compiles both tsconfigs
-> (node half + browser half) — so **there is no separate `pnpm run build` step**. Re-run `pnpm run build`
-> only when you want to rebuild after editing sources.
->
-> Don't try the shortcut `dsh plugin add github:qiuzhiyei/dsh-companion`: pnpm 10+ refuses to run build
-> scripts of git dependencies (`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`), and this repo ships no `dist/`
-> — it has to be compiled on the spot, so the install is blocked.
+> `dsh plugin` simply forwards its arguments to pnpm inside the profile directory, so this is
+> `pnpm add github:qiuzhiyei/dsh-companion` under the hood. This repo **commits `dist/`** (~0.3 MB),
+> so there is no build step and nothing trips pnpm 10+'s "git dependencies may not run build scripts" gate.
+
+**Hacking on the source?** Clone it and link it instead — edits take effect after `pnpm run build` + a restart:
+
+```sh
+git clone https://github.com/qiuzhiyei/dsh-companion.git
+cd dsh-companion && pnpm install && pnpm run build
+
+cd .. && dsh plugin --profile <your-profile> add ./dsh-companion
+```
 
 Once DSH starts:
 

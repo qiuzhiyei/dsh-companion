@@ -60,26 +60,25 @@ DeepSeek Harness（`dsh`）是「一切皆插件」的 agent harness，但跑长
 **前置**：Node.js `^22.19.0 || >=24.0.0`、[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（目前 0.2.0-rc 线）、pnpm。
 
 ```sh
-# 1. 拿到代码（也可以直接 git clone 到任意位置）
-git clone https://github.com/qiuzhiyei/dsh-companion.git dsh-companion
-cd dsh-companion
+# 一条命令从 GitHub 装进 profile（仓库里已带编译好的 dist/，装完即可用）
+dsh plugin --profile <你的 profile> add github:qiuzhiyei/dsh-companion
 
-# 2. 装依赖 —— 装完自动编译 dist/（仓库不含构建产物，靠 prepare 钩子现编）
-pnpm install
-
-# 3. 装进你的 DSH profile（路径相对「调用目录」，所以在插件的父目录执行）
-cd ..
-dsh plugin --profile <你的 profile> add ./dsh-companion
-
-# 4. 启动 DSH，日志里会打印伴侣地址
+# 启动 DSH，日志里会打印伴侣地址
 dsh --profile <你的 profile>
 ```
 
-> `pnpm install` 会跑 `prepare`（`scripts/prepare.mjs`），把 node 半边和浏览器半边两份 tsconfig 都编译好，
-> 所以**不用再手动 `pnpm run build`**；改完源码想重建时再单独跑一次即可。
->
-> 别图省事用 `dsh plugin add github:qiuzhiyei/dsh-companion`：pnpm 10+ 默认禁止 git 依赖执行构建脚本
-> （`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`），而本仓库不含 `dist/`、必须现场编，正好被这条规则卡住。
+> `dsh plugin` 只是把参数原样转发给 profile 目录里的 pnpm，所以这条等价于
+> `pnpm add github:qiuzhiyei/dsh-companion`。本仓库**把 `dist/` 一并纳入了版本库**（约 0.3 MB），
+> 因此不需要任何构建步骤，也不会撞上 pnpm 10+ 那条「git 依赖不准跑构建脚本」的拦截。
+
+**想改源码**（开发模式）就 clone 一份、用 link 方式挂进去，改完 `pnpm run build` + 重启即生效：
+
+```sh
+git clone https://github.com/qiuzhiyei/dsh-companion.git
+cd dsh-companion && pnpm install && pnpm run build
+
+cd .. && dsh plugin --profile <你的 profile> add ./dsh-companion
+```
 
 跑起来后会看到：
 

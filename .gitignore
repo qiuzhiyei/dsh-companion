@@ -1,8 +1,10 @@
 # ---- 依赖 ----
 node_modules/
 
-# ---- 构建产物（双 tsc 生成；重建：pnpm run build）----
-dist/
+# ---- 构建产物 ----
+# dist/ 有意纳入版本库：用户可以用 `dsh plugin add github:qiuzhiyei/dsh-companion` 直接安装，
+# 不需要构建、也不会被 pnpm 的「git 依赖不许跑构建脚本」拦下。发布前务必 pnpm run build 后提交。
+# CI 会校验提交的 dist/ 与源码一致（见 .github/workflows/ci.yml）。
 *.tsbuildinfo
 
 # ---- 日志 ----

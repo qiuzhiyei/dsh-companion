@@ -1,6 +1,6 @@
 {
   "name": "dsh-companion",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "DSH 伴侣 — DeepSeek Harness 伴飞插件：用量统计、桌宠陪伴、预算告警，以及对宿主界面的持续增强。",
   "keywords": [
     "dsh-plugin",
@@ -61,8 +61,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "node --test",
-    "prepare": "node scripts/prepare.mjs"
+    "test": "node --test"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.4"
