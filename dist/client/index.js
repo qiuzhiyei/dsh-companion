@@ -625,7 +625,7 @@ function mountBadge() {
 }
 const loader = window.__ModuleLoader__;
 const entry = {
-    id: 'dsh-companion',
+    id: '@qiuzhiyei/dsh-companion',
     factory: (modRequire) => {
         /** 角标/面板纯 DOM + fetch；「删除会话」菜单项依赖宿主 slots 服务。 */
         const inject = ['slots'];

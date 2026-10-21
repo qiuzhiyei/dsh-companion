@@ -6,4 +6,4 @@
 # relative path. `dsh-companion` is this package's main entry (→ dist/index.js).
 - insert:
     - id: dsh-companion
-      name: dsh-companion
+      name: '@qiuzhiyei/dsh-companion'

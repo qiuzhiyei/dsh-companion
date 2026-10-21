@@ -62,15 +62,23 @@ price page.
 **Requirements**: Node.js `^22.19.0 || >=24.0.0`, [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (0.2.0-rc line), pnpm.
 
 ```sh
-# one command, straight from GitHub (the repo ships a compiled dist/, so it just works)
+# recommended: from npm (uses your configured registry / mirror, immune to GitHub connectivity)
+dsh plugin --profile <your-profile> add @qiuzhiyei/dsh-companion
+
+# alternative: straight from the GitHub repo (it ships a compiled dist/)
 dsh plugin --profile <your-profile> add github:qiuzhiyei/dsh-companion
 
 dsh --profile <your-profile>
 ```
 
-> `dsh plugin` simply forwards its arguments to pnpm inside the profile directory, so this is
-> `pnpm add github:qiuzhiyei/dsh-companion` under the hood. This repo **commits `dist/`** (~0.3 MB),
-> so there is no build step and nothing trips pnpm 10+'s "git dependencies may not run build scripts" gate.
+> `dsh plugin` simply forwards its arguments to pnpm inside the profile directory, so the two lines
+> are `pnpm add @qiuzhiyei/dsh-companion` and `pnpm add github:qiuzhiyei/dsh-companion` under the hood.
+> Both the package and the repo **ship a compiled `dist/`** (~0.3 MB), so there is no build step and
+> nothing trips pnpm 10+'s "git dependencies may not run build scripts" gate.
+>
+> **Why the `@qiuzhiyei/` prefix**: the bare name `dsh-companion` on npm is already taken by another
+> author, so the release lives under the author's scope. The plugin's display name and behaviour in
+> DSH are unaffected.
 
 **Hacking on the source?** Clone it and link it instead — edits take effect after `pnpm run build` + a restart:
 

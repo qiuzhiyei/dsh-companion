@@ -11,7 +11,10 @@ import { readFile } from 'node:fs/promises'
 test('客户端角标：ModuleLoader 脚本形态', async () => {
   const source = await readFile(new URL('../dist/client/index.js', import.meta.url), 'utf8')
   assert.ok(source.includes('__ModuleLoader__'), '必须通过 __ModuleLoader__.load 注册')
-  assert.ok(source.includes('dsh-companion'), '注册 id 必须是包名 dsh-companion')
+  assert.ok(
+    source.includes("id: '@qiuzhiyei/dsh-companion'"),
+    '注册 id 必须逐字等于包名 @qiuzhiyei/dsh-companion（否则宿主静默不加载）',
+  )
   assert.ok(
     !/^\s*(import|export)\s/m.test(source),
     '脚本模式：不能有顶层 import/export（tsc 会把带 import/export 的文件当模块输出）',

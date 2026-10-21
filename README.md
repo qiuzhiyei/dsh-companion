@@ -60,16 +60,23 @@ DeepSeek Harness（`dsh`）是「一切皆插件」的 agent harness，但跑长
 **前置**：Node.js `^22.19.0 || >=24.0.0`、[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（目前 0.2.0-rc 线）、pnpm。
 
 ```sh
-# 一条命令从 GitHub 装进 profile（仓库里已带编译好的 dist/，装完即可用）
+# 推荐：从 npm 装（走你自己配的 registry / 国内镜像，不受 GitHub 连通性影响）
+dsh plugin --profile <你的 profile> add @qiuzhiyei/dsh-companion
+
+# 备选：直接吃 GitHub 仓库（仓库里带着编译好的 dist/）
 dsh plugin --profile <你的 profile> add github:qiuzhiyei/dsh-companion
 
 # 启动 DSH，日志里会打印伴侣地址
 dsh --profile <你的 profile>
 ```
 
-> `dsh plugin` 只是把参数原样转发给 profile 目录里的 pnpm，所以这条等价于
-> `pnpm add github:qiuzhiyei/dsh-companion`。本仓库**把 `dist/` 一并纳入了版本库**（约 0.3 MB），
-> 因此不需要任何构建步骤，也不会撞上 pnpm 10+ 那条「git 依赖不准跑构建脚本」的拦截。
+> `dsh plugin` 只是把参数原样转发给 profile 目录里的 pnpm，所以两条分别等价于
+> `pnpm add @qiuzhiyei/dsh-companion` 和 `pnpm add github:qiuzhiyei/dsh-companion`。
+> 包和仓库都**带着编译好的 `dist/`**（约 0.3 MB），装完即可用，不需要构建步骤，
+> 也不会撞上 pnpm 10+ 那条「git 依赖不准跑构建脚本」的拦截。
+>
+> **为什么包名带 `@qiuzhiyei/` 前缀**：npm 上 `dsh-companion` 这个无前缀名已被另一个作者占用，
+> 所以正式包发布在作者 scope 下；插件在 DSH 里的显示名与功能不受影响。
 
 **想改源码**（开发模式）就 clone 一份、用 link 方式挂进去，改完 `pnpm run build` + 重启即生效：
 

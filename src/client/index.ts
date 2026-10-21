@@ -731,7 +731,7 @@ function mountBadge(): ClientDisposer {
 const loader = (window as unknown as { __ModuleLoader__?: ModuleLoader }).__ModuleLoader__
 
 const entry = {
-  id: 'dsh-companion',
+  id: '@qiuzhiyei/dsh-companion',
   factory: (modRequire?: (id: string) => any): Record<string, unknown> => {
     /** 角标/面板纯 DOM + fetch；「删除会话」菜单项依赖宿主 slots 服务。 */
     const inject: string[] = ['slots']
