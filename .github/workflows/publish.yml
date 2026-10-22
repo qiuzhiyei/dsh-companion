@@ -1,0 +1,74 @@
+name: publish
+
+# 发布到 npm。
+#
+# 两种触发方式：
+#   1. push 一个 v* 标签（正常发版：改 version → 提交 → 打标签 → push）
+#   2. 手动 workflow_dispatch（补发/重试）
+#
+# 鉴权走 **npm Trusted Publishing（OIDC）**：不在仓库里存任何 NPR token，
+# 也不需要人做 2FA 签名——npm 只认「这个 workflow、这个仓库、这个 tag」。
+# 前提（一次性，必须包所有者本人操作）：
+#   npmjs.com → 包页面 → Settings → Trusted publishing →
+#   GitHub Actions：仓库 qiuzhiyei/dsh-companion，workflow 文件名 publish.yml
+#
+# 注意：@qiuzhiyei/dsh-companion 在 npm 上的 2FA 策略是「发布需要 2FA」，
+# Trusted Publishing 是官方唯一允许免交互发布的通道；普通 token 如果没有
+# Bypass 2FA 列，仍然会被 E403/EOTP 拦。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # OIDC：npm 用它换一个短期发布凭证（Trusted Publishing 的核心）
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing 需要 npm >= 11.5.1（node 24 自带的通常已满足，显式兜一层）
+      - name: Ensure modern npm
+        run: npm install -g npm@latest && npm --version
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          # 发布不需要 electron 二进制（它在 devDependencies 里，100 MB+）
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Verify build artifacts are committed
+        run: git diff --exit-code -- dist
+
+      - name: Test
+        run: node --test
+
+      # 版本号必须与标签一致，否则发出去的是错的版本
+      - name: Check tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG package=$PKG"
+          test "$TAG" = "$PKG"
+
+      - name: Publish to npm
+        run: npm publish --access public
