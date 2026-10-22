@@ -341,6 +341,7 @@ export function apply(ctx, config = Config({})) {
         const tray = new TrayController({
             serverUrl,
             toast: config.server.toast,
+            dataDir,
             // autoStart=false（设置里关掉“随 DSH 启动伴侣”）→ 下次 DSH 启动不拉壳。
             shell: config.server.shell === 'auto' && currentSettings.autoStart ? 'auto' : 'off',
         });

@@ -110,34 +110,32 @@ cd .. && dsh plugin --profile <你的 profile> add ./dsh-companion
 - **面板页**：`http://127.0.0.1:17573/panel`
 
 > **桌宠默认是「浏览器页面模式」**：桌面悬浮窗需要一个可选壳，而 npm 包**不带** `electron`
-> （它在 `devDependencies` 里，100 MB+，故意不随包发）。想让她真的浮在桌面上，看下面一节。
+> （它在 `devDependencies` 里，100 MB+，故意不随包发）。**首次需要时插件会自动下载它**，见下一节。
 
-### 桌面悬浮桌宠（可选壳）
+### 桌面悬浮桌宠（自动获取运行时）
 
-给 **profile** 装一份 electron（不是装到插件目录）：
+插件启动时按顺序找 Electron 运行时：
 
-```sh
-dsh plugin --profile <你的 profile> add -D electron
+1. 环境变量 `DSH_COMPANION_ELECTRON`（指向可执行文件，手动兜底）
+2. 你已经装过的 `electron`（开发态 link 安装 / 自己 `add -D electron` 过）
+3. **`<数据目录>\runtime\electron-<版本>\`** —— 插件自己下载的副本
+
+三条都不命中时，插件在后台自动下载（约 150 MB，优先国内镜像，GitHub 兜底），解压到数据目录并
+自动拉起壳；**下载不阻塞 DSH 启动**，进度写在 DSH 日志里，桌宠会在下完后自己出现。之后一直复用，
+不再联网。
+
+```
+[dsh-companion] 本机暂无 Electron 运行时，后台自动获取中（桌面桌宠装好后会自动出现）…
+[dsh-companion] 正在下载 Electron 运行时：42.0 MB / 150.6 MB 28%
+[dsh-companion] 下载完成，正在解压 Electron 运行时…
+[dsh-companion] electron 伴侣壳已启动 → http://127.0.0.1:17573
 ```
 
-装完**完全退出 DSH 再重开**——插件启动时检测到 electron 就会自动拉起壳（`server.shell: 'auto'`），
-于是得到透明、置顶、点击穿透、带托盘菜单的桌面伴侣。
-
-> ⚠️ **pnpm 10+ 默认不跑依赖的 install 脚本**，而 electron 的二进制正是靠它下载的。如果装完
-> 仍然是浏览器模式（日志里有一行 `electron 未安装，伴侣以浏览器页面模式运行`），在 profile 的
-> `pnpm-workspace.yaml` 里放行它，然后重装：
->
-> ```yaml
-> allowBuilds:
->   electron: true
-> ```
->
-> 也可以直接复用本机已有的 electron：版本相同时，把 `node_modules/electron/` 里的 `dist/`
-> 和 `path.txt` 拷进 profile 的 `node_modules/electron/` 即可（省掉 200 MB 下载）。
-> 国内下载慢就设 `$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"`。
->
-> **什么都不装也能用**：浏览器打开 `http://127.0.0.1:17573` 就是同一只桌宠（只是没有托盘、
-> 没有鼠标穿透、不会浮在所有窗口之上）。
+> - **不想下载**：`server.shell: 'off'`（配置项）或直接不装 electron —— 面板、角标、统计、会话管理全都正常，
+>   只是没有桌面悬浮窗与托盘；浏览器打开 `http://127.0.0.1:17573` 就是同一只桌宠。
+> - **下载失败**：会写一个标记，6 小时内不重试（避免每次启动都卡一下），日志里给出手动安装命令：
+>   `dsh plugin --profile <你的 profile> add -D electron`。
+> - **删除缓存**：删掉 `<数据目录>\runtime` 即可，下次启动会重新下载。
 
 ### 不想装 DSH，先看看它长什么样
 
@@ -237,12 +235,12 @@ src/ui/                 HTTP + SSE 服务 / 页面 / 托盘 / 皮肤注册
 src/ui-enhance/         宿主界面增强（会话删除）
 electron/               可选桌面壳
 assets/skins/           5 套皮肤素材
-tests/                  node --test，81 项
+tests/                  node --test，86 项
 ```
 
 ```sh
 pnpm run build        # 双 tsc：node 半边 + 浏览器半边（脚本模式）
-pnpm test             # 81 项，应全绿
+pnpm test             # 86 项，应全绿
 node demo.mjs         # 离线演示
 ```
 
@@ -255,7 +253,7 @@ node demo.mjs         # 离线演示
 
 ### 测试
 
-81 项 `node --test`：状态机 / 计费（含峰谷与缓存价）/ 预算 / 存储双后端 / 导出 /
+86 项 `node --test`：状态机 / 计费（含峰谷与缓存价）/ 预算 / 存储双后端 / 导出 /
 mock 端到端 / 插件冒烟（真实 cordis Context 加载 → 服务 → 模拟任务 → 统计 → 导出 → 可逆卸载）/
 面板与桌宠页契约（深浅色、反应帧接线、台词-皮肤映射、久坐提醒、壳 IPC 面）/ 会话管理 / 历史筛选。
 

@@ -12,9 +12,9 @@
  */
 
 import { spawn } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { ensureElectronRuntime, resolveElectronSync } from './electron-runtime.js'
 
 export interface TrayControllerOptions {
   serverUrl: string
@@ -22,6 +22,8 @@ export interface TrayControllerOptions {
   toast: boolean
   /** 'auto'：尝试拉起 Electron 壳；'off'：只用 console 后端。 */
   shell: 'off' | 'auto'
+  /** 数据目录：Electron 运行时按需下载后存在这里（<dataDir>/runtime）。 */
+  dataDir: string
 }
 
 /** 托盘菜单（Electron 壳托盘提供；无壳时退化为日志）。 */
@@ -39,6 +41,8 @@ export interface TrayMenu {
 export class TrayController {
   private shellProcess: ReturnType<typeof spawn> | null = null
   private toastCount = 0
+  /** dispose 之后不再拉起壳（下载可能还在途中）。 */
+  private stopped = false
 
   constructor(private readonly options: TrayControllerOptions) {}
 
@@ -64,26 +68,54 @@ export class TrayController {
    *
    * 注意：不能复用 DSH 宿主的 Electron exe——打包过的应用（app.asar）
    * 永远只运行自己的主程序，脚本参数只会撞单实例锁后退出。必须用
-   * “发行版 electron”（默认应用，可跑任意脚本），来源只有 npm 包
-   * electron（用户 devDependency 自装，绝不自动安装）。
-   * 找不到 → 浏览器页面模式（打印面板地址）。
+   * “发行版 electron”（默认应用，可跑任意脚本）。
+   *
+   * 来源三层（见 electron-runtime.ts）：环境变量 → 本地已装（开发态/用户自装）
+   * → **按需自动下载**（一次性约 150 MB，缓存在 <dataDir>/runtime）。
+   * 下载在后台进行，不阻塞插件启动；下完自动拉起壳。
+   * 全都拿不到 → 浏览器页面模式（打印面板地址）。
    */
   private async spawnElectronShell(): Promise<void> {
-    const electronDir = dirname(fileURLToPath(new URL('../../electron/main.cjs', import.meta.url)))
-    const shellScript = join(electronDir, 'main.cjs')
-    let electronBin: string | null = null
-    try {
-      const require = createRequire(import.meta.url)
-      electronBin = require('electron') as unknown as string
-    } catch {
-      electronBin = null
-    }
-    if (!electronBin) {
-      console.warn(
-        '[dsh-companion] electron 未安装，伴侣以浏览器页面模式运行：' + this.options.serverUrl,
-      )
+    const local = resolveElectronSync(this.options.dataDir)
+    if (local) {
+      this.launchShell(local)
       return
     }
+
+    // 不能 await：首次运行要下 ~150 MB，await 会把插件启动一起卡住。
+    // 后台获取，下完再拉起壳；dispose 之后不再拉起（见 stop()）。
+    void this.provisionAndLaunch()
+  }
+
+  /** 后台获取运行时并拉起壳（失败只影响桌宠，不影响插件本体）。 */
+  private async provisionAndLaunch(): Promise<void> {
+    console.log(
+      '[dsh-companion] 本机暂无 Electron 运行时，后台自动获取中（桌面桌宠装好后会自动出现）…',
+    )
+    try {
+      const bin = await ensureElectronRuntime({
+        dataDir: this.options.dataDir,
+        log: {
+          info: (message) => console.log(`[dsh-companion] ${message}`),
+          warn: (message) => console.warn(`[dsh-companion] ${message}`),
+        },
+      })
+      if (bin && !this.stopped) this.launchShell(bin)
+    } catch (error) {
+      console.warn(
+        '[dsh-companion] 自动获取 Electron 运行时失败，伴侣以浏览器页面模式运行：' +
+          this.options.serverUrl +
+          ' (' +
+          String(error) +
+          ')',
+      )
+    }
+  }
+
+  /** 真正 spawn 壳进程（Electron 运行时已就绪）。 */
+  private launchShell(electronBin: string): void {
+    const electronDir = dirname(fileURLToPath(new URL('../../electron/main.cjs', import.meta.url)))
+    const shellScript = join(electronDir, 'main.cjs')
 
     try {
       // 去掉 ELECTRON_RUN_AS_NODE，否则子进程仍是 node 模式（无窗口无托盘）。
@@ -121,6 +153,7 @@ export class TrayController {
   }
 
   stop(): void {
+    this.stopped = true
     if (this.shellProcess && this.shellProcess.exitCode === null) {
       // 壳进程有自己的托盘退出入口；这里只解除引用（避免误杀用户窗口）。
       this.shellProcess.unref()

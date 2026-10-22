@@ -173,37 +173,35 @@ mode still works:
 
 > **The pet runs in browser-tab mode by default**: the floating desktop window needs an
 > optional shell, and the npm package does **not** ship `electron` (it sits in
-> `devDependencies`, 100 MB+, deliberately unpublished). See below to get her on the desktop.
+> `devDependencies`, 100 MB+, deliberately unpublished). **The plugin fetches it on demand** —
+> see below.
 
-### Getting the floating desktop pet
+### Getting the floating desktop pet (auto-fetched runtime)
 
-Install electron into the **profile** (not into the plugin directory):
+On startup the plugin looks for an Electron runtime in this order:
 
-```sh
-dsh plugin --profile <your-profile> add -D electron
+1. env var `DSH_COMPANION_ELECTRON` (point it at an executable — manual escape hatch)
+2. an `electron` you already installed (link/dev install or `add -D electron`)
+3. **`<data dir>/runtime/electron-<version>/`** — the copy the plugin downloaded itself
+
+If none matches, it downloads ~150 MB in the background (China mirror first, GitHub as
+fallback), extracts it into the data dir and launches the shell. **The download never blocks
+DSH startup** — progress goes to the DSH log and the pet appears when it finishes. That copy
+is reused forever afterwards.
+
+```
+[dsh-companion] 本机暂无 Electron 运行时，后台自动获取中（桌面桌宠装好后会自动出现）…
+[dsh-companion] 正在下载 Electron 运行时：42.0 MB / 150.6 MB 28%
+[dsh-companion] 下载完成，正在解压 Electron 运行时…
+[dsh-companion] electron 伴侣壳已启动 → http://127.0.0.1:17573
 ```
 
-Then **fully quit DSH and relaunch** — the plugin detects electron on startup and spawns the
-shell itself (`server.shell: 'auto'`), giving you the transparent, always-on-top,
-click-through companion with a tray menu.
-
-> ⚠️ **pnpm 10+ does not run dependency install scripts by default**, and electron's binary is
-> downloaded by exactly that script. If you still end up in browser mode (the log says
-> `electron 未安装，伴侣以浏览器页面模式运行`), allow it in the profile's `pnpm-workspace.yaml`
-> and reinstall:
->
-> ```yaml
-> allowBuilds:
->   electron: true
-> ```
->
-> You can also reuse an existing electron install: for the same version, copy `dist/` and
-> `path.txt` from `node_modules/electron/` into the profile's `node_modules/electron/`
-> (saves the 200 MB download). For a faster download in China:
-> `$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"`.
->
-> **Skipping it costs you nothing but polish**: `http://127.0.0.1:17573` in a browser is the
-> same pet — just without tray, click-through, or always-on-top.
+> - **Don't want the download?** Set `server.shell: 'off'` — panel, badge, stats and session
+>   management all keep working; you just get no floating window or tray. The browser page at
+>   `http://127.0.0.1:17573` is the same pet.
+> - **Download failed?** A marker is written and it won't retry for 6 hours (no startup stalls);
+>   the log prints the manual command `dsh plugin --profile <your-profile> add -D electron`.
+> - **Reset the cache**: delete `<data dir>/runtime`.
 
 ## Custom skins
 
@@ -248,12 +246,12 @@ src/ui/                 HTTP + SSE server, pages, tray, skin registry
 src/ui-enhance/         host GUI enhancements (session deletion)
 electron/               optional desktop shell
 assets/skins/           5 skins
-tests/                  node --test, 81 tests
+tests/                  node --test, 86 tests
 ```
 
 ```sh
 pnpm run build          # double tsc: node half + browser half (script mode)
-pnpm test               # 81 tests, all green
+pnpm test               # 86 tests, all green
 node demo.mjs           # offline demo
 ```
 
