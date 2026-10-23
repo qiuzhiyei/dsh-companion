@@ -360,6 +360,10 @@ export interface BalanceSummary {
   /** 期间起点/终点余额（无快照时为 null）。 */
   start: number | null
   end: number | null
+  /** 期间最后一条快照的时间（面板显示「更新 14:48」）。 */
+  at: number | null
+  /** 最后一条快照的赠金（单独口径，不进消耗）。 */
+  bonus: number | null
   samples: number
 }
 

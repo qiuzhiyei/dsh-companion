@@ -54,13 +54,20 @@ const snap = (ts, normal, extra = {}) => ({
 test('summarizeBalance: 有基线时只算区间内下降量', () => {
   const now = new Date(2026, 9, 23, 15, 0).getTime()
   const from = startOfDay(now)
-  const points = [snap(from + 1000, 20), snap(from + 3600_000, 18), snap(from + 7200_000, 15)]
+  const points = [
+    snap(from + 1000, 20, { bonus: 3 }),
+    snap(from + 3600_000, 18, { bonus: 3 }),
+    snap(from + 7200_000, 15, { bonus: 6 }),
+  ]
   const sum = summarizeBalance({ period: 'today', snapshots: points, baseline: snap(from - 60_000, 25), now })
   assert.equal(sum.spent, 10) // 25 → 15
   assert.equal(sum.topups, 0)
   assert.equal(sum.start, 25)
   assert.equal(sum.end, 15)
   assert.equal(sum.samples, 3)
+  // 条带用的「更新于 / 赠金」= 期间最后一条快照
+  assert.equal(sum.at, from + 7200_000)
+  assert.equal(sum.bonus, 6)
 })
 
 test('summarizeBalance: 余额上升记充值，不算负消耗', () => {
@@ -78,6 +85,8 @@ test('summarizeBalance: 无快照 → 全零；无基线用首点当起点', () 
   assert.equal(empty.spent, 0)
   assert.equal(empty.samples, 0)
   assert.equal(empty.start, null)
+  assert.equal(empty.at, null)
+  assert.equal(empty.bonus, null)
 
   const from = startOfDay(now)
   const sum = summarizeBalance({

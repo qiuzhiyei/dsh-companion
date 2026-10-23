@@ -40,6 +40,8 @@ export function summarizeBalance(input) {
         unknown: 0,
         start: null,
         end: null,
+        at: null,
+        bonus: null,
         samples: points.length,
     };
     if (points.length === 0)
@@ -70,6 +72,9 @@ export function summarizeBalance(input) {
         prev = cur;
     }
     result.end = points[points.length - 1].normal;
+    // 条带上的「更新 14:48」「赠金 ¥6.00」都取期间最后一条快照。
+    result.at = points[points.length - 1].ts;
+    result.bonus = points[points.length - 1].bonus;
     if (result.start === null)
         result.start = result.end;
     return result;

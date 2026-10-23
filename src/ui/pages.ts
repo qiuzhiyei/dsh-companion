@@ -62,21 +62,28 @@ export function petPageHTML(): string {
   #bubble.alert { border-color: #ff7a5c; background: rgba(64, 20, 12, .92); }
   #bubble.done-ok { border-color: rgba(55, 178, 108, .75); }
   #bubble.done-bad { border-color: #e0564f; background: rgba(64, 20, 12, .92); }
-  /* 余额牌子：双击桌宠举起的小白板（不依赖皮肤素材，所有皮肤通用）。
-     绝对定位在宠物上方（#petWrap 内）——出现/消失不改变布局，宠物本身不会跳。 */
+  /* 余额牌子：双击桌宠举起的小黑板（不依赖皮肤素材，所有皮肤通用）。
+     深色玻璃 + 金色金额，与 HUD 气泡同一族；绝对定位在宠物上方（#petWrap 内），
+     出现/消失不改变布局，宠物本身不会跳。 */
   #petWrap { position: relative; display: flex; flex-direction: column; align-items: center; }
-  #placard { position: absolute; bottom: calc(100% + 12px); left: 50%; margin-left: -88px; width: 176px;
-    padding: 8px 10px 9px; border-radius: 12px; z-index: 6;
-    background: #fbfdff; color: #1d2b3a; border: 2px solid #d8e2ec; text-align: center;
-    box-shadow: 0 8px 22px rgba(0,0,0,.38); pointer-events: none; }
-  #placard::after { content: ''; position: absolute; left: 50%; bottom: -9px; width: 14px; height: 14px;
-    margin-left: -7px; background: #fbfdff; border-right: 2px solid #d8e2ec; border-bottom: 2px solid #d8e2ec;
-    transform: rotate(45deg); }
-  #placard.show { animation: placard-pop .24s ease-out; }
-  @keyframes placard-pop { 0% { opacity: 0; transform: translateY(10px) scale(.9) } 100% { opacity: 1; transform: translateY(0) scale(1) } }
-  #placard .p-label { font-size: 10.5px; letter-spacing: .12em; color: #6b7c8c; }
-  #placard .p-amt { font-size: 22px; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
-  #placard .p-sub { font-size: 10.5px; color: #7b8b9a; margin-top: 1px; }
+  #placard { position: absolute; bottom: calc(100% + 14px); left: 50%; margin-left: -92px; width: 184px;
+    padding: 10px 12px 9px; border-radius: 14px; z-index: 6; text-align: center;
+    background: rgba(17, 26, 37, .95); color: #eaf3fb;
+    border: 1px solid rgba(255, 255, 255, .14);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .06);
+    pointer-events: none; }
+  #placard::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 12px;
+    margin-left: -6px; background: rgba(17, 26, 37, .95);
+    border-right: 1px solid rgba(255, 255, 255, .14); border-bottom: 1px solid rgba(255, 255, 255, .14);
+    transform: rotate(45deg); border-bottom-right-radius: 2px; }
+  #placard.show { animation: placard-pop .22s ease-out; }
+  @keyframes placard-pop { 0% { opacity: 0; transform: translateY(8px) scale(.94) } 100% { opacity: 1; transform: translateY(0) scale(1) } }
+  #placard .p-label { font-size: 10px; letter-spacing: .05em; color: rgba(198, 216, 234, .6); }
+  #placard .p-amt { font-size: 26px; font-weight: 700; line-height: 1.22; font-variant-numeric: tabular-nums;
+    color: #ffd766; text-shadow: 0 1px 10px rgba(255, 215, 102, .18); }
+  #placard .p-sub { font-size: 10.5px; color: rgba(198, 216, 234, .52); margin-top: 1px; }
+  /* 查询中/未登录/未开启：金额改中性色，别用金光误导 */
+  #placard[data-state="muted"] .p-amt { color: #c9d8e7; text-shadow: none; font-size: 19px; font-weight: 600; }
   .hidden { display: none !important; }
   /* 减少动态效果：尊重系统设置，别让桌宠在「减少动画」模式下继续抖 */
   @media (prefers-reduced-motion: reduce) {
@@ -88,7 +95,7 @@ export function petPageHTML(): string {
 <body class="browser">
   <div id="stage">
     <div id="petWrap">
-      <div id="placard" class="hidden"><div class="p-label">DEEPSEEK 余额</div>
+      <div id="placard" class="hidden" data-state="muted"><div class="p-label">DeepSeek 余额</div>
         <div class="p-amt" id="placardAmt">—</div>
         <div class="p-sub" id="placardSub"></div>
       </div>
@@ -570,30 +577,39 @@ function showBalance() {
   if (!snap || (snap.settings && snap.settings.purePetMode)) return
   const box = $('placard')
   if (!box) return
+  // 窗口很矮时（Electron 壳默认 300x340、宠物居中）牌子会顶出窗口上沿被裁掉：
+  // 量一下实际位置，越界就整体下移，宁可压住一点头顶也不让字被切。
+  const fitPlacard = () => {
+    box.style.bottom = ''
+    const rect = box.getBoundingClientRect()
+    const overflow = Math.ceil(6 - rect.top)
+    if (overflow > 0) box.style.bottom = 'calc(100% + ' + (14 - overflow) + 'px)'
+  }
+  const setState = (state, amt, sub) => {
+    box.dataset.state = state
+    $('placardAmt').textContent = amt
+    $('placardSub').textContent = sub
+    fitPlacard()
+  }
   box.classList.remove('hidden')
   box.classList.remove('show'); void box.offsetWidth; box.classList.add('show')
-  $('placardAmt').textContent = '查询中…'
-  $('placardSub').textContent = 'DeepSeek 账号'
+  setState('muted', '查询中…', 'DeepSeek 账号')
   fetch('/api/balance?refresh=1').then((r) => r.json()).then((b) => {
     if (!b || b.enabled === false) {
-      $('placardAmt').textContent = '未开启'
-      $('placardSub').textContent = '设置 → 计费 → 余额台账'
+      setState('muted', '未开启', '设置 → 计费 → 余额台账')
       return
     }
     if (!b.ok) {
-      $('placardAmt').textContent = '—'
-      $('placardSub').textContent = b.signedIn ? '暂时查不到余额' : '未登录 DeepSeek 账号'
+      setState('muted', '—', b.signedIn ? '暂时查不到余额' : '未登录 DeepSeek 账号')
       return
     }
     const sym = b.currency === 'USD' ? '$' : '¥'
-    $('placardAmt').textContent = sym + Number(b.normal || 0).toFixed(2)
     const bits = []
     if (Number(b.bonus) > 0) bits.push('赠金 ' + sym + Number(b.bonus).toFixed(2))
     bits.push(new Date(b.at || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
-    $('placardSub').textContent = bits.join(' · ')
+    setState('ok', sym + Number(b.normal || 0).toFixed(2), bits.join(' · '))
   }).catch(() => {
-    $('placardAmt').textContent = '—'
-    $('placardSub').textContent = '伴侣服务未连接'
+    setState('muted', '—', '伴侣服务未连接')
   })
   if (placardTimer) clearTimeout(placardTimer)
   placardTimer = setTimeout(hidePlacard, 4500)
@@ -942,6 +958,23 @@ export function panelPageHTML(): string {
   .tone-gold { --kpi-tone: #e0a23a; }
   .tone-cyan { --kpi-tone: #39c5d8; }
   .tone-teal { --kpi-tone: #2fa89a; }
+  /* 余额台账条带：横跨整行（1 / -1），避免 3×2 网格最后一行留洞 */
+  .bal-strip { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px 26px; flex-wrap: wrap; padding: 13px 18px 13px 21px; }
+  .bal-head { display: flex; align-items: center; gap: 10px; flex: none; }
+  .bal-head-text { display: flex; flex-direction: column; gap: 2px; }
+  .bal-head-text small { color: #6f8298; font-size: 11px; }
+  .bal-metrics { display: flex; align-items: flex-start; gap: 30px; margin-left: auto; flex-wrap: wrap; }
+  .bal-metric { display: flex; flex-direction: column; gap: 1px; min-width: 84px; }
+  .bal-metric > span { color: #8aa0b5; font-size: 11.5px; }
+  .bal-metric b { color: #eaf3fb; font-size: 20px; font-weight: 700; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .bal-metric b i { font-style: normal; font-size: 11.5px; font-weight: 600; color: #8aa0b5; margin-right: 2px; }
+  .bal-metric .bal-sub { color: #6f8298; font-size: 10.5px; white-space: nowrap; }
+  .bal-empty { color: #8aa0b5; font-size: 12px; }
+  .bal-updated { color: #6f8298; font-size: 11px; font-variant-numeric: tabular-nums; }
+  @media (max-width: 760px) {
+    .bal-metrics { gap: 18px; margin-left: 0; width: 100%; }
+    .bal-updated { margin-left: 0; }
+  }
   .chart-card { position: relative; background: #1a242f; border: 1px solid #293745; border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
   /* 图表 hover：自定义 tooltip 跟随鼠标 + 其余柱降透明 */
   .chart-tip { position: absolute; z-index: 20; transform: translate(-50%, -100%); padding: 6px 9px; border-radius: 8px; background: #0f151c; border: 1px solid #2c3b49; color: #dbe7f2; font-size: 11.5px; line-height: 1.45; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .1s; box-shadow: 0 8px 20px rgba(0, 0, 0, .35); }
@@ -1153,6 +1186,9 @@ export function panelPageHTML(): string {
     .kpi-label, .kpi-sub, .set-head p, .item-text small { color: #7b8b9a; }
     .kpi-value, .set-head h2 { color: #26333f; }
     .kpi-unit { color: #7b8b9a; }
+    .bal-metric b { color: #26333f; }
+    .bal-metric b i, .bal-metric > span, .bal-metric .bal-sub, .bal-empty { color: #6f8298; }
+    .bal-head-text small, .bal-updated { color: #8a9aa9; }
     .set-list .set-item + .set-item { border-top-color: #e8edf3; }
     .item-text > span { color: #26333f; }
     .switch-track { background: #c6d0da; }
@@ -1596,7 +1632,7 @@ function skRows(widths, n) {
 function paintHistorySkeleton() { $('historyBody').innerHTML = skRows([16, 26, 20, 12, 14, 11, 11, 13], 6) }
 function paintSessionsSkeleton() { $('smBody').innerHTML = skRows([6, 40, 22, 12, 10, 10, 16], 5) }
 function paintStatsSkeleton() {
-  const tones = ['tone-blue', 'tone-cyan', 'tone-green', 'tone-violet', 'tone-gold', 'tone-teal', 'tone-gold', 'tone-cyan']
+  const tones = ['tone-blue', 'tone-cyan', 'tone-green', 'tone-violet', 'tone-gold', 'tone-teal']
   $('kpiCards').innerHTML = tones.map((t) =>
     '<div class="kpi ' + t + '"><div class="kpi-head"><span class="sk sk-ico"></span><span class="sk sk-line" style="width:42%"></span></div>' +
     '<div class="sk sk-num"></div><div class="sk sk-line" style="width:60%;margin-top:8px"></div></div>'
@@ -1957,15 +1993,7 @@ function renderKpis(s, balToday, balMonth) {
   const pCacheRate = prev && prev.totalTokens > 0 ? Math.round((prev.cachedTokens / prev.totalTokens) * 100) : null
   // [图标, 标签, 数值, 单位, 单位在前, 副标题, 色调, 环比 HTML]——数值与单位分级排版
   const tok = tokParts(s.totalTokens)
-  // 余额台账：消耗 = 期间余额下降量，充值单列；没开启/没快照就显示引导。
-  const balCard = (label, sum, tone, hint) => {
-    const has = sum && sum.samples > 0
-    const sym = sum && sum.currency === 'USD' ? '$' : cur()
-    const sub = has
-      ? '充值 ' + sym + Number(sum.topups).toFixed(2) + ' · 期末 ' + sym + Number(sum.end).toFixed(2)
-      : hint
-    return ['🐳', label, has ? Number(sum.spent).toFixed(2) : '—', has ? sym : '', true, sub, tone, '']
-  }
+  // 余额台账单独一条横跨整行的条带（不塞进 3×2 网格，否则最后一行留洞、两张卡还长得一样）。
   const cards = [
     ['Σ', '总 Token', tok[0], tok[1], false, '输入 ' + fmtTokens(s.promptTokens) + ' · 输出 ' + fmtTokens(s.completionTokens), 'tone-blue', deltaHTML(s.totalTokens, prev && prev.totalTokens)],
     ['🧩', '任务数', String(s.tasks), '个', false, '成功 ' + s.success + ' 轮', 'tone-cyan', deltaHTML(s.tasks, prev && prev.tasks)],
@@ -1973,8 +2001,6 @@ function renderKpis(s, balToday, balMonth) {
     ['⏱', '总时长', fmtDuration(s.totalDurationMs), '', false, s.tasks > 0 ? '平均 ' + fmtDuration(s.totalDurationMs / s.tasks) : '—', 'tone-violet', deltaHTML(s.totalDurationMs, prev && prev.totalDurationMs, false)],
     ['¥', '费用估算', s.cost.toFixed(2), cur(), true, '仅统计 DeepSeek 账号任务', 'tone-gold', deltaHTML(s.cost, prev && prev.cost, false)],
     ['⚡', '缓存命中', String(cacheRate), '%', false, fmtTokens(s.cachedTokens) + ' tokens', 'tone-teal', deltaHTML(cacheRate, pCacheRate, true, 'pt')],
-    balCard('今日余额消耗', balToday, 'tone-gold', '设置 → 计费 → 余额台账'),
-    balCard('本月余额消耗', balMonth, 'tone-cyan', '设置 → 计费 → 余额台账'),
   ]
   $('kpiCards').innerHTML = cards.map((c) => {
     const unit = c[3] ? '<i class="kpi-unit' + (c[4] ? ' pre' : '') + '">' + c[3] + '</i>' : ''
@@ -1982,7 +2008,42 @@ function renderKpis(s, balToday, balMonth) {
     return '<div class="kpi ' + c[6] + '"><div class="kpi-head"><span class="kpi-ico">' + c[0] +
       '</span><span class="kpi-label">' + c[1] + '</span></div><div class="kpi-value' + (c[2].length > 9 ? ' long' : '') + '">' + value +
       '</div><div class="kpi-sub">' + c[5] + (c[7] || '') + '</div></div>'
-  }).join('')
+  }).join('') + balanceStripHTML(balToday, balMonth)
+}
+
+/**
+ * 余额台账条带：横跨整行，一眼看到「今日 / 本月 / 当前余额 + 更新时间」。
+ * 未开启或还没采到样时降级成一行引导，不占两张空卡的位置。
+ */
+function balanceStripHTML(balToday, balMonth) {
+  const enabled = !!(snap && snap.settings && snap.settings.balance && snap.settings.balance.enabled)
+  const today = balToday && balToday.samples > 0 ? balToday : null
+  const month = balMonth && balMonth.samples > 0 ? balMonth : null
+  const sum = today || month
+  const sym = sum && sum.currency === 'USD' ? '$' : cur()
+  const money = (v) => '<i>' + sym + '</i>' + Number(v || 0).toFixed(2)
+  const head = '<div class="bal-head"><span class="kpi-ico">🐳</span><div class="bal-head-text">' +
+    '<span class="kpi-label">余额台账</span><small>仅 DeepSeek 登录账号 · 消耗按余额下降计</small></div></div>'
+  if (!sum) {
+    return '<div class="kpi bal-strip tone-gold">' + head + '<div class="bal-empty">' +
+      (enabled ? '等待首次采样…（双击桌宠可立即查一次）' : '未开启 — 在「设置 → 计费 → 余额台账」里打开') +
+      '</div></div>'
+  }
+  const metric = (label, value, sub) => '<div class="bal-metric"><span>' + label + '</span><b>' + value +
+    '</b><span class="bal-sub">' + sub + '</span></div>'
+  const spent = (s) => s ? money(s.spent) : '—'
+  const topup = (s) => s ? '充值 ' + sym + Number(s.topups || 0).toFixed(2) : '暂无快照'
+  const updated = (today || month).at
+    ? new Date((today || month).at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : ''
+  return '<div class="kpi bal-strip tone-gold">' + head +
+    '<div class="bal-metrics">' +
+    metric('今日消耗', spent(today), topup(today)) +
+    metric('本月消耗', spent(month), topup(month)) +
+    metric('当前余额', money((today || month).end), '赠金 ' + sym + Number((today || month).bonus || 0).toFixed(2)) +
+    '</div>' +
+    (updated ? '<span class="bal-updated">更新 ' + updated + '</span>' : '') +
+    '</div>'
 }
 /**
  * KPI 环比徽标。upGood 决定「变大」是好事还是坏事（成功率/缓存命中 upGood，
