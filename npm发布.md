@@ -196,7 +196,7 @@ $tmp = Join-Path $env:TEMP ('v-' + (Get-Random)); New-Item -ItemType Directory $
 npm install '@qiuzhiyei/dsh-companion' --no-audit --no-fund
 
 # ③真正的用户路径（全新 DSH_HOME，走 dsh 自己的 CLI）
-$dsh = 'D:\Software\Angent\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
+$dsh = 'D:\Software\Agent\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
 $env:DSH_HOME = Join-Path $env:TEMP ('dshhome-' + (Get-Random))
 New-Item -ItemType Directory $env:DSH_HOME | Out-Null
 & $dsh plugin --profile p add '@qiuzhiyei/dsh-companion'

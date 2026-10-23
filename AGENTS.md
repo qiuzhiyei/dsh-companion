@@ -52,8 +52,10 @@ pnpm test             # node --test，86 项应全绿
 $job = Start-Job -ScriptBlock { Set-Location <项目根>; pnpm test 2>&1 | Out-String }
 Wait-Job $job -Timeout 160
 node demo.mjs         # 无 DSH 演示：mock 自动循环
-# dsh CLI 不在 PATH：
-& "D:\Software\Angent\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add/remove ...
+# dsh CLI 不在 PATH（⚠ 安装路径随重装会变：2026-10-23 从 Angent 换到了 Agent，
+# 用之前先 Test-Path 一下，或按下面这行现查）：
+# (Get-Process 'DeepSeek Harness' | Select-Object -First 1).Path | Split-Path
+& "D:\Software\Agent\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add/remove ...
 # 手动拉起 electron 壳（调试用）：⚠ DSH 给子进程设了 ELECTRON_RUN_AS_NODE=1，
 # 带着它启动 electron.exe 会退化成纯 node（nativeImage undefined 崩），必须先移除：
 Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
