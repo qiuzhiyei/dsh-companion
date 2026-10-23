@@ -54,11 +54,7 @@ const snap = (ts, normal, extra = {}) => ({
 test('summarizeBalance: 有基线时只算区间内下降量', () => {
   const now = new Date(2026, 9, 23, 15, 0).getTime()
   const from = startOfDay(now)
-  const points = [
-    snap(from + 1000, 20, { bonus: 3 }),
-    snap(from + 3600_000, 18, { bonus: 3 }),
-    snap(from + 7200_000, 15, { bonus: 6 }),
-  ]
+  const points = [snap(from + 1000, 20), snap(from + 3600_000, 18), snap(from + 7200_000, 15)]
   const sum = summarizeBalance({ period: 'today', snapshots: points, baseline: snap(from - 60_000, 25), now })
   assert.equal(sum.spent, 10) // 25 → 15
   assert.equal(sum.topups, 0)
@@ -67,7 +63,36 @@ test('summarizeBalance: 有基线时只算区间内下降量', () => {
   assert.equal(sum.samples, 3)
   // 条带用的「更新于 / 赠金」= 期间最后一条快照
   assert.equal(sum.at, from + 7200_000)
-  assert.equal(sum.bonus, 6)
+  assert.equal(sum.bonus, 0)
+})
+
+test('summarizeBalance: 赠金先被扣也算消耗（只看 normal 会恒为 0）', () => {
+  const now = new Date(2026, 9, 23, 17, 0).getTime()
+  const from = startOfDay(now)
+  const points = [
+    snap(from + 1000, 17.77231472, { bonus: 6 }),
+    snap(from + 3600_000, 17.77231472, { bonus: 5.65148312 }),
+    snap(from + 7200_000, 17.77231472, { bonus: 5.51034064 }),
+  ]
+  const sum = summarizeBalance({ period: 'today', snapshots: points, baseline: null, now })
+  // normal 一分没动，消耗全在赠金上：6.00 → 5.51034064
+  assert.ok(Math.abs(sum.spent - 0.48965936) < 1e-9)
+  assert.equal(sum.start, 17.77231472) // start/end 仍只报充值余额
+  assert.equal(sum.end, 17.77231472)
+  assert.ok(Math.abs(sum.bonus - 5.51034064) < 1e-9)
+})
+
+test('summarizeBalance: 赠金到账记充值，不吞掉同段消耗', () => {
+  const now = new Date(2026, 9, 23, 17, 0).getTime()
+  const from = startOfDay(now)
+  const points = [
+    snap(from + 1000, 10, { bonus: 0 }),
+    snap(from + 3600_000, 10, { bonus: 5 }), // 赠金到账 5
+    snap(from + 7200_000, 10, { bonus: 4.8 }), // 随后花掉 0.2
+  ]
+  const sum = summarizeBalance({ period: 'today', snapshots: points, baseline: snap(from - 60_000, 10), now })
+  assert.equal(sum.topups, 5)
+  assert.ok(Math.abs(sum.spent - 0.2) < 1e-9)
 })
 
 test('summarizeBalance: 余额上升记充值，不算负消耗', () => {

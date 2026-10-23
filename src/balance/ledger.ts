@@ -5,11 +5,21 @@
  * 不计入消耗（充值/退款/赠金到期都会让差值失真，宁可分开记也不硬算）。
  * 币种变化视为不可归因的跳变（unknown），跳过该段差值。
  *
+ * ⚠ 口径 = normal + bonus（**总可用**），不是只认 normal：
+ * DeepSeek 先扣赠金再扣充值余额，实测一个下午 normal 恒定 17.77、bonus 从 6.00
+ * 掉到 5.51，只看 normal 会让「今日消耗」永远是 0。故 delta 用两者之和算，
+ * start/end/bonus 仍分别给 normal 与赠金，供 UI 分开显示。
+ *
  * 日/月口径：以区间起点前最近一条快照为基线，算到区间内最后一条快照——
  * 这样跨天/跨月不会把边界外的变化算进来。
  */
 
 import type { BalanceSnapshot, BalanceSummary } from '../types.js'
+
+/** 总可用余额 = 充值余额 + 赠金（老快照可能没有 bonus 字段，按 0 处理）。 */
+function totalOf(snapshot: BalanceSnapshot): number {
+  return Number(snapshot.normal || 0) + Number(snapshot.bonus || 0)
+}
 
 export function startOfDay(ts: number): number {
   const d = new Date(ts)
@@ -77,7 +87,7 @@ export function summarizeBalance(input: SummarizeInput): BalanceSummary {
       prev = cur
       continue
     }
-    const delta = prev.normal - cur.normal
+    const delta = totalOf(prev) - totalOf(cur)
     if (delta > 0) result.spent += delta
     else if (delta < 0) result.topups += -delta
     prev = cur
