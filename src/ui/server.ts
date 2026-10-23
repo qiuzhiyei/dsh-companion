@@ -13,6 +13,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { panelPageHTML, petPageHTML } from './pages.js'
 import type { SkinRegistry } from './skins.js'
 import type {
+  BalanceSummary,
+  BalanceView,
   ExportFormat,
   OfficialPricingStatus,
   PeriodStats,
@@ -52,6 +54,10 @@ export interface PetServerDeps {
   statsSeries(period: 'today' | 'week' | 'month' | 'all'): Promise<StatsSeries>
   /** 成本排行（模型 / 项目，按费用降序）。 */
   ranking(period: 'today' | 'week' | 'month' | 'all'): Promise<RankingResult>
+  /** 当前余额视图（仅登录的 DeepSeek 账号；force=true 绕过 60s 缓存）。 */
+  balance(force: boolean): Promise<BalanceView>
+  /** 余额日/月聚合（消耗 = 首末快照下降量；充值单列）。 */
+  balanceSummary(period: 'today' | 'month'): Promise<BalanceSummary>
   updateSettings(patch: Record<string, unknown>): Promise<PetSettings>
   togglePause(): Promise<PetSnapshot>
   mockStart(scenario: MockScenario): Promise<{ ok: boolean; message: string }>
@@ -250,6 +256,13 @@ export class PetServer {
     }
     if (path === '/api/pricing/refresh' && method === 'POST') {
       return json(res, await this.deps.refreshPricing())
+    }
+    if (path === '/api/balance' && method === 'GET') {
+      return json(res, await this.deps.balance(url.searchParams.get('refresh') === '1'))
+    }
+    if (path === '/api/balance/summary' && method === 'GET') {
+      const period = url.searchParams.get('period') === 'month' ? 'month' : 'today'
+      return json(res, await this.deps.balanceSummary(period))
     }
     if (path === '/api/stats' && method === 'GET') {
       const periodRaw = url.searchParams.get('period') ?? 'today'

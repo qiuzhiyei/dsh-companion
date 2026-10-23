@@ -99,6 +99,10 @@ export const DEFAULT_SETTINGS = {
         dailyMaxTokens: null,
         dailyMaxCost: null,
     },
+    balance: {
+        enabled: false,
+        intervalMinutes: 30,
+    },
 };
 /** 事件通道名常量（避免裸字符串）。 */
 export const EVENTS = {

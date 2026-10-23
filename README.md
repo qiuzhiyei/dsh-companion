@@ -2,7 +2,7 @@
 
 # 🐳 DSH 伴侣
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的伴飞插件
+给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的伴侣插件
 
 桌宠 · 用量统计 · 费用估算 · 预算告警 · 界面增强
 

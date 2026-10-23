@@ -62,6 +62,21 @@ export function petPageHTML(): string {
   #bubble.alert { border-color: #ff7a5c; background: rgba(64, 20, 12, .92); }
   #bubble.done-ok { border-color: rgba(55, 178, 108, .75); }
   #bubble.done-bad { border-color: #e0564f; background: rgba(64, 20, 12, .92); }
+  /* 余额牌子：双击桌宠举起的小白板（不依赖皮肤素材，所有皮肤通用）。
+     绝对定位在宠物上方（#petWrap 内）——出现/消失不改变布局，宠物本身不会跳。 */
+  #petWrap { position: relative; display: flex; flex-direction: column; align-items: center; }
+  #placard { position: absolute; bottom: calc(100% + 12px); left: 50%; margin-left: -88px; width: 176px;
+    padding: 8px 10px 9px; border-radius: 12px; z-index: 6;
+    background: #fbfdff; color: #1d2b3a; border: 2px solid #d8e2ec; text-align: center;
+    box-shadow: 0 8px 22px rgba(0,0,0,.38); pointer-events: none; }
+  #placard::after { content: ''; position: absolute; left: 50%; bottom: -9px; width: 14px; height: 14px;
+    margin-left: -7px; background: #fbfdff; border-right: 2px solid #d8e2ec; border-bottom: 2px solid #d8e2ec;
+    transform: rotate(45deg); }
+  #placard.show { animation: placard-pop .24s ease-out; }
+  @keyframes placard-pop { 0% { opacity: 0; transform: translateY(10px) scale(.9) } 100% { opacity: 1; transform: translateY(0) scale(1) } }
+  #placard .p-label { font-size: 10.5px; letter-spacing: .12em; color: #6b7c8c; }
+  #placard .p-amt { font-size: 22px; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  #placard .p-sub { font-size: 10.5px; color: #7b8b9a; margin-top: 1px; }
   .hidden { display: none !important; }
   /* 减少动态效果：尊重系统设置，别让桌宠在「减少动画」模式下继续抖 */
   @media (prefers-reduced-motion: reduce) {
@@ -72,7 +87,13 @@ export function petPageHTML(): string {
 </head>
 <body class="browser">
   <div id="stage">
-    <div id="pet"><img id="petImg" alt="pet" draggable="false"></div>
+    <div id="petWrap">
+      <div id="placard" class="hidden"><div class="p-label">DEEPSEEK 余额</div>
+        <div class="p-amt" id="placardAmt">—</div>
+        <div class="p-sub" id="placardSub"></div>
+      </div>
+      <div id="pet"><img id="petImg" alt="pet" draggable="false"></div>
+    </div>
     <div id="bubble"><span id="bubbleText">连接中…</span>
       <div id="restActions" class="rest-actions hidden">
         <button id="restWalk" class="rest-btn" type="button">起来走走 ✓</button>
@@ -537,9 +558,52 @@ function spawnParticles(chars, n) {
 
 let clickTimes = []
 let dizzyUntil = 0
+// 双击（320ms 内两下）= 举牌看余额；不延迟单击，抚摸照常先发生。
+let lastPatAt = 0
+let placardTimer = null
+function hidePlacard() {
+  if (placardTimer) { clearTimeout(placardTimer); placardTimer = null }
+  const box = $('placard')
+  if (box) box.classList.add('hidden')
+}
+function showBalance() {
+  if (!snap || (snap.settings && snap.settings.purePetMode)) return
+  const box = $('placard')
+  if (!box) return
+  box.classList.remove('hidden')
+  box.classList.remove('show'); void box.offsetWidth; box.classList.add('show')
+  $('placardAmt').textContent = '查询中…'
+  $('placardSub').textContent = 'DeepSeek 账号'
+  fetch('/api/balance?refresh=1').then((r) => r.json()).then((b) => {
+    if (!b || b.enabled === false) {
+      $('placardAmt').textContent = '未开启'
+      $('placardSub').textContent = '设置 → 计费 → 余额台账'
+      return
+    }
+    if (!b.ok) {
+      $('placardAmt').textContent = '—'
+      $('placardSub').textContent = b.signedIn ? '暂时查不到余额' : '未登录 DeepSeek 账号'
+      return
+    }
+    const sym = b.currency === 'USD' ? '$' : '¥'
+    $('placardAmt').textContent = sym + Number(b.normal || 0).toFixed(2)
+    const bits = []
+    if (Number(b.bonus) > 0) bits.push('赠金 ' + sym + Number(b.bonus).toFixed(2))
+    bits.push(new Date(b.at || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
+    $('placardSub').textContent = bits.join(' · ')
+  }).catch(() => {
+    $('placardAmt').textContent = '—'
+    $('placardSub').textContent = '伴侣服务未连接'
+  })
+  if (placardTimer) clearTimeout(placardTimer)
+  placardTimer = setTimeout(hidePlacard, 4500)
+}
 function petReact() {
   const now = Date.now()
   if (now < dizzyUntil) return
+  const doublePat = now - lastPatAt < 320
+  lastPatAt = doublePat ? 0 : now
+  if (doublePat) showBalance()
   clickTimes = clickTimes.filter((t) => now - t < 1800)
   clickTimes.push(now)
   // 连点彩蛋：1.8 秒内摸 5 下 → 晕头转向 + 3 秒冷静期。
@@ -960,6 +1024,7 @@ export function panelPageHTML(): string {
   /* 数字输入的单位后缀（tok / ¥ / 分钟） */
   .unit { position: relative; display: inline-flex; align-items: center; flex: none; width: 170px; }
   .unit .num-input { width: 100%; padding-right: 46px; }
+  .unit select.num-input { background: #101820; color: #eaf3fb; border: 1px solid #293745; border-radius: 8px; padding: 6px 8px; font-size: 12.5px; }
   .unit i { position: absolute; right: 12px; font-style: normal; color: #8aa0b5; font-size: 11.5px; pointer-events: none; }
   .unit.minute i { right: 14px; }
   .rest-pick { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
@@ -1084,6 +1149,7 @@ export function panelPageHTML(): string {
     .seg button { color: #5b6d7e; }
     .seg button.active { background: #2c5a7a; color: #fff; }
     .kpi, .chart-card, .set-card { background: #fff; border-color: #e0e6ed; box-shadow: 0 1px 3px rgba(20, 35, 55, .06); }
+    .unit select.num-input { background: #fff; color: #26333f; border-color: #d0d9e3; }
     .kpi-label, .kpi-sub, .set-head p, .item-text small { color: #7b8b9a; }
     .kpi-value, .set-head h2 { color: #26333f; }
     .kpi-unit { color: #7b8b9a; }
@@ -1427,6 +1493,19 @@ export function panelPageHTML(): string {
               <div class="budget-text" id="budgetText"></div>
             </div>
           </div>
+          <div class="set-card tone-cyan" id="card-balance">
+            <div class="set-head">
+              <span class="set-ico">🐳</span>
+              <div><h2>余额台账<button class="info" type="button" data-tip="只记录登录的 DeepSeek 账号余额（第三方渠道一律不查）。开启后按间隔采样，消耗 = 相邻快照的下降量，充值单列；双击桌宠可随时举牌查看。数据只存本地。">i</button></h2><p>记录余额变化，双击桌宠可查看</p></div>
+            </div>
+            <div class="toggle-grid">
+              <label class="set-item"><div class="item-text"><span>记录余额</span><small>仅登录账号；不联网上报，只存本地</small></div><input type="checkbox" id="setBalanceEnabled" class="switch-input"><span class="switch-track"></span></label>
+            </div>
+            <div class="set-item">
+              <div class="item-text"><span>采样间隔</span><small>低频即可；双击查看与任务结束会额外补采</small></div>
+              <span class="unit"><select class="num-input" id="setBalanceInterval"><option value="15">15</option><option value="30">30</option><option value="60">60</option><option value="120">120</option></select><i>分钟</i></span>
+            </div>
+          </div>
           <div class="set-card tone-teal" id="card-currency">
             <div class="set-head">
               <span class="set-ico">💱</span>
@@ -1517,7 +1596,7 @@ function skRows(widths, n) {
 function paintHistorySkeleton() { $('historyBody').innerHTML = skRows([16, 26, 20, 12, 14, 11, 11, 13], 6) }
 function paintSessionsSkeleton() { $('smBody').innerHTML = skRows([6, 40, 22, 12, 10, 10, 16], 5) }
 function paintStatsSkeleton() {
-  const tones = ['tone-blue', 'tone-cyan', 'tone-green', 'tone-violet', 'tone-gold', 'tone-teal']
+  const tones = ['tone-blue', 'tone-cyan', 'tone-green', 'tone-violet', 'tone-gold', 'tone-teal', 'tone-gold', 'tone-cyan']
   $('kpiCards').innerHTML = tones.map((t) =>
     '<div class="kpi ' + t + '"><div class="kpi-head"><span class="sk sk-ico"></span><span class="sk sk-line" style="width:42%"></span></div>' +
     '<div class="sk sk-num"></div><div class="sk sk-line" style="width:60%;margin-top:8px"></div></div>'
@@ -1805,14 +1884,17 @@ const METRICS = {
 async function loadStats(force) {
   if (!statsLoaded) skLater('stats', paintStatsSkeleton)
   try {
-    const [s, series, ranking] = await Promise.all([
+    const [s, series, ranking, balToday, balMonth] = await Promise.all([
       fetchJSON('/api/stats?period=' + currentPeriod, force),
       fetchJSON('/api/stats/series?period=' + currentPeriod, force),
       // 排行是附加信息：它单独失败（旧版服务 / 瞬时错误）不该把整页统计带崩
       fetchJSON('/api/ranking?period=' + currentPeriod, force).catch(() => null),
+      // 余额台账：没开启/没快照时返回空聚合，同样不该带崩统计页
+      fetchJSON('/api/balance/summary?period=today', force).catch(() => null),
+      fetchJSON('/api/balance/summary?period=month', force).catch(() => null),
     ])
     $('chartSkeleton').style.display = 'none'
-    renderKpis(s)
+    renderKpis(s, balToday, balMonth)
     renderChart(series)
     if (ranking) renderRanking(ranking)
   } catch (err) {
@@ -1869,12 +1951,21 @@ for (const btn of document.querySelectorAll('#metricSeg button')) {
   }
 }
 
-function renderKpis(s) {
+function renderKpis(s, balToday, balMonth) {
   const cacheRate = s.totalTokens > 0 ? Math.round((s.cachedTokens / s.totalTokens) * 100) : 0
   const prev = s.previous || null
   const pCacheRate = prev && prev.totalTokens > 0 ? Math.round((prev.cachedTokens / prev.totalTokens) * 100) : null
   // [图标, 标签, 数值, 单位, 单位在前, 副标题, 色调, 环比 HTML]——数值与单位分级排版
   const tok = tokParts(s.totalTokens)
+  // 余额台账：消耗 = 期间余额下降量，充值单列；没开启/没快照就显示引导。
+  const balCard = (label, sum, tone, hint) => {
+    const has = sum && sum.samples > 0
+    const sym = sum && sum.currency === 'USD' ? '$' : cur()
+    const sub = has
+      ? '充值 ' + sym + Number(sum.topups).toFixed(2) + ' · 期末 ' + sym + Number(sum.end).toFixed(2)
+      : hint
+    return ['🐳', label, has ? Number(sum.spent).toFixed(2) : '—', has ? sym : '', true, sub, tone, '']
+  }
   const cards = [
     ['Σ', '总 Token', tok[0], tok[1], false, '输入 ' + fmtTokens(s.promptTokens) + ' · 输出 ' + fmtTokens(s.completionTokens), 'tone-blue', deltaHTML(s.totalTokens, prev && prev.totalTokens)],
     ['🧩', '任务数', String(s.tasks), '个', false, '成功 ' + s.success + ' 轮', 'tone-cyan', deltaHTML(s.tasks, prev && prev.tasks)],
@@ -1882,6 +1973,8 @@ function renderKpis(s) {
     ['⏱', '总时长', fmtDuration(s.totalDurationMs), '', false, s.tasks > 0 ? '平均 ' + fmtDuration(s.totalDurationMs / s.tasks) : '—', 'tone-violet', deltaHTML(s.totalDurationMs, prev && prev.totalDurationMs, false)],
     ['¥', '费用估算', s.cost.toFixed(2), cur(), true, '仅统计 DeepSeek 账号任务', 'tone-gold', deltaHTML(s.cost, prev && prev.cost, false)],
     ['⚡', '缓存命中', String(cacheRate), '%', false, fmtTokens(s.cachedTokens) + ' tokens', 'tone-teal', deltaHTML(cacheRate, pCacheRate, true, 'pt')],
+    balCard('今日余额消耗', balToday, 'tone-gold', '设置 → 计费 → 余额台账'),
+    balCard('本月余额消耗', balMonth, 'tone-cyan', '设置 → 计费 → 余额台账'),
   ]
   $('kpiCards').innerHTML = cards.map((c) => {
     const unit = c[3] ? '<i class="kpi-unit' + (c[4] ? ' pre' : '') + '">' + c[3] + '</i>' : ''
@@ -2149,6 +2242,16 @@ async function loadSettings() {
   $('setRestEnabled').checked = rr.enabled !== false
   $('setRestMinutes').value = rr.intervalMinutes || 60
   syncRestPresets(rr.intervalMinutes || 60)
+  const bal = s.balance || {}
+  $('setBalanceEnabled').checked = bal.enabled === true
+  const balMin = String(bal.intervalMinutes || 30)
+  const balSel = $('setBalanceInterval')
+  if (!Array.prototype.some.call(balSel.options, (o) => o.value === balMin)) {
+    const opt = document.createElement('option')
+    opt.value = balMin; opt.textContent = balMin
+    balSel.appendChild(opt)
+  }
+  balSel.value = balMin
   document.querySelectorAll('#currencySeg button').forEach((b) => b.classList.toggle('active', b.dataset.cur === s.currency))
   const budget = s.budget || {}
   $('setTaskTokens').value = budget.taskMaxTokens || 0
@@ -2221,6 +2324,11 @@ $('setClickThrough').onchange = (e) => put({ clickThrough: e.target.checked })
 $('setPrivacy').onchange = (e) => put({ privacyMode: e.target.checked })
 $('setAutoStart').onchange = (e) => put({ autoStart: e.target.checked })
 $('setNotify').onchange = (e) => put({ notify: e.target.checked })
+// 余额台账：开关与采样间隔一起提交（后端只认 balance.{enabled,intervalMinutes}）。
+$('setBalanceEnabled').onchange = (e) =>
+  put({ balance: { enabled: e.target.checked, intervalMinutes: Number($('setBalanceInterval').value) || 30 } })
+$('setBalanceInterval').onchange = (e) =>
+  put({ balance: { enabled: $('setBalanceEnabled').checked, intervalMinutes: Number(e.target.value) || 30 } })
 $('setRestEnabled').onchange = (e) => {
   const cur = (snap && snap.settings && snap.settings.restReminder) || { intervalMinutes: 60 }
   put({ restReminder: { enabled: e.target.checked, intervalMinutes: Number(cur.intervalMinutes) || 60 } })

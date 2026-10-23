@@ -73,6 +73,13 @@ function clampRestMinutes(v) {
         return DEFAULT_SETTINGS.restReminder.intervalMinutes;
     return Math.min(480, Math.max(5, Math.round(n)));
 }
+/** 余额采样间隔：整数分钟，夹在 5..1440；非法值回默认 30。 */
+export function clampBalanceMinutes(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n))
+        return DEFAULT_SETTINGS.balance.intervalMinutes;
+    return Math.min(1440, Math.max(5, Math.round(n)));
+}
 function mergeSettings(value) {
     if (typeof value !== 'object' || value === null)
         return { ...DEFAULT_SETTINGS };
@@ -123,6 +130,10 @@ function mergeSettings(value) {
             dailyMaxTokens: raw.budget?.dailyMaxTokens ?? null,
             dailyMaxCost: raw.budget?.dailyMaxCost ?? null,
         },
+        balance: {
+            enabled: raw.balance?.enabled === true,
+            intervalMinutes: clampBalanceMinutes(raw.balance?.intervalMinutes),
+        },
     };
 }
 const TASK_COLUMNS = `id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, turn INTEGER NOT NULL,
@@ -156,6 +167,9 @@ export class SqlitePetStore {
       status TEXT NOT NULL)`);
         this.db.exec(`CREATE TABLE IF NOT EXISTS pet_settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+        this.db.exec(`CREATE TABLE IF NOT EXISTS balance_snapshots (
+      ts INTEGER PRIMARY KEY, currency TEXT NOT NULL, normal REAL NOT NULL DEFAULT 0,
+      bonus REAL NOT NULL DEFAULT 0, totalCosts REAL, source TEXT NOT NULL DEFAULT '')`);
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_start ON task_sessions(startTime)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_tools_task ON tool_calls(taskKey)');
     }
@@ -302,6 +316,37 @@ export class SqlitePetStore {
             .all(fromMs, toMs);
         return toAggregate(rows.map(rowToTask));
     }
+    async saveBalanceSnapshot(snapshot) {
+        this.must()
+            .prepare(`INSERT INTO balance_snapshots (ts, currency, normal, bonus, totalCosts, source)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(ts) DO UPDATE SET
+          currency = excluded.currency, normal = excluded.normal, bonus = excluded.bonus,
+          totalCosts = excluded.totalCosts, source = excluded.source`)
+            .run(Math.round(snapshot.ts), snapshot.currency, snapshot.normal, snapshot.bonus, snapshot.totalCosts, snapshot.source);
+    }
+    async listBalanceSnapshots(fromMs, toMs) {
+        const rows = this.must()
+            .prepare(`SELECT * FROM balance_snapshots WHERE ts >= ? AND ts < ? ORDER BY ts ASC`)
+            .all(fromMs, toMs);
+        return rows.map(rowToBalance);
+    }
+    async latestBalanceSnapshot(beforeMs) {
+        const row = typeof beforeMs === 'number'
+            ? this.must()
+                .prepare(`SELECT * FROM balance_snapshots WHERE ts < ? ORDER BY ts DESC LIMIT 1`)
+                .get(beforeMs)
+            : this.must()
+                .prepare(`SELECT * FROM balance_snapshots ORDER BY ts DESC LIMIT 1`)
+                .get();
+        return row ? rowToBalance(row) : null;
+    }
+    async pruneBalanceSnapshots(cutoffMs) {
+        const result = this.must()
+            .prepare(`DELETE FROM balance_snapshots WHERE ts < ?`)
+            .run(cutoffMs);
+        return Number(result?.changes) || 0;
+    }
     must() {
         if (!this.db)
             throw new Error('sqlite store not initialized');
@@ -311,7 +356,7 @@ export class SqlitePetStore {
 export class JsonPetStore {
     jsonPath;
     backend = 'json';
-    data = { schemaVersion: 1, tasks: [], toolCalls: [], settings: null };
+    data = { schemaVersion: 1, tasks: [], toolCalls: [], settings: null, balances: [] };
     constructor(jsonPath) {
         this.jsonPath = jsonPath;
     }
@@ -325,6 +370,7 @@ export class JsonPetStore {
                 tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
                 toolCalls: Array.isArray(parsed.toolCalls) ? parsed.toolCalls : [],
                 settings: parsed.settings ?? null,
+                balances: Array.isArray(parsed.balances) ? parsed.balances : [],
             };
         }
         catch {
@@ -445,6 +491,39 @@ export class JsonPetStore {
         const tasks = this.data.tasks.filter((task) => task.startTime >= fromMs && task.startTime < toMs);
         return toAggregate(tasks);
     }
+    async saveBalanceSnapshot(snapshot) {
+        const ts = Math.round(snapshot.ts);
+        const index = this.data.balances.findIndex((item) => item.ts === ts);
+        const record = { ...snapshot, ts };
+        if (index >= 0)
+            this.data.balances[index] = record;
+        else
+            this.data.balances.push(record);
+        this.data.balances.sort((a, b) => a.ts - b.ts);
+        // 防 JSON 无限膨胀：只保留最近 4000 条（30 分钟采样约 83 天）。
+        if (this.data.balances.length > 4_000)
+            this.data.balances = this.data.balances.slice(-4_000);
+        await this.flush();
+    }
+    async listBalanceSnapshots(fromMs, toMs) {
+        return this.data.balances.filter((item) => item.ts >= fromMs && item.ts < toMs);
+    }
+    async latestBalanceSnapshot(beforeMs) {
+        for (let i = this.data.balances.length - 1; i >= 0; i -= 1) {
+            const item = this.data.balances[i];
+            if (typeof beforeMs !== 'number' || item.ts < beforeMs)
+                return item;
+        }
+        return null;
+    }
+    async pruneBalanceSnapshots(cutoffMs) {
+        const before = this.data.balances.length;
+        this.data.balances = this.data.balances.filter((item) => item.ts >= cutoffMs);
+        const removed = before - this.data.balances.length;
+        if (removed > 0)
+            await this.flush();
+        return removed;
+    }
     async flush() {
         const tempPath = `${this.jsonPath}.tmp-${process.pid}`;
         await writeFile(tempPath, JSON.stringify(this.data), 'utf8');
@@ -478,6 +557,16 @@ function rowToTask(row) {
         steps: Number(row.steps ?? 0),
         tags: parseTags(String(row.tags ?? '[]')),
         note: String(row.note ?? ''),
+    };
+}
+function rowToBalance(row) {
+    return {
+        ts: Number(row.ts ?? 0),
+        currency: String(row.currency ?? 'CNY'),
+        normal: Number(row.normal ?? 0),
+        bonus: Number(row.bonus ?? 0),
+        totalCosts: row.totalCosts === null || row.totalCosts === undefined ? null : Number(row.totalCosts),
+        source: (row.source ?? 'manual'),
     };
 }
 function rowToToolCall(row) {

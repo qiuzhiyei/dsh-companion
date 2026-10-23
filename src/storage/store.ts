@@ -9,6 +9,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { TaskOutcome, TaskSession, ToolCallRecord } from '../types.js'
+import type { BalanceSnapshot } from '../types.js'
 import { DEFAULT_MODEL_PRICES, DEFAULT_SETTINGS } from '../types.js'
 import type { ModelPrice, PetSettings } from '../types.js'
 
@@ -81,6 +82,13 @@ export interface PetStore {
   /** 缺模型名的任务按同会话时间最近的已知路由回填；返回回填条数。 */
   backfillMissingModels(): Promise<number>
   statsBetween(fromMs: number, toMs: number): Promise<AggregatedStats>
+  /** 余额快照（仅登录账号采样；按 ts 升序）。 */
+  saveBalanceSnapshot(snapshot: BalanceSnapshot): Promise<void>
+  listBalanceSnapshots(fromMs: number, toMs: number): Promise<BalanceSnapshot[]>
+  /** 最近一条快照；beforeMs 用于取“区间起点之前”的基线。 */
+  latestBalanceSnapshot(beforeMs?: number): Promise<BalanceSnapshot | null>
+  /** 清理早于 cutoff 的快照，返回删除条数。 */
+  pruneBalanceSnapshots(cutoffMs: number): Promise<number>
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +137,13 @@ function clampRestMinutes(v: unknown): number {
   const n = Number(v)
   if (!Number.isFinite(n)) return DEFAULT_SETTINGS.restReminder.intervalMinutes
   return Math.min(480, Math.max(5, Math.round(n)))
+}
+
+/** 余额采样间隔：整数分钟，夹在 5..1440；非法值回默认 30。 */
+export function clampBalanceMinutes(v: unknown): number {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return DEFAULT_SETTINGS.balance.intervalMinutes
+  return Math.min(1440, Math.max(5, Math.round(n)))
 }
 
 function mergeSettings(value: unknown): PetSettings {
@@ -182,6 +197,10 @@ function mergeSettings(value: unknown): PetSettings {
       dailyMaxTokens: raw.budget?.dailyMaxTokens ?? null,
       dailyMaxCost: raw.budget?.dailyMaxCost ?? null,
     },
+    balance: {
+      enabled: raw.balance?.enabled === true,
+      intervalMinutes: clampBalanceMinutes(raw.balance?.intervalMinutes),
+    },
   }
 }
 
@@ -232,6 +251,9 @@ export class SqlitePetStore implements PetStore {
       status TEXT NOT NULL)`)
     this.db.exec(`CREATE TABLE IF NOT EXISTS pet_settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+    this.db.exec(`CREATE TABLE IF NOT EXISTS balance_snapshots (
+      ts INTEGER PRIMARY KEY, currency TEXT NOT NULL, normal REAL NOT NULL DEFAULT 0,
+      bonus REAL NOT NULL DEFAULT 0, totalCosts REAL, source TEXT NOT NULL DEFAULT '')`)
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_start ON task_sessions(startTime)')
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_tools_task ON tool_calls(taskKey)')
   }
@@ -431,6 +453,53 @@ export class SqlitePetStore implements PetStore {
     return toAggregate(rows.map(rowToTask))
   }
 
+  async saveBalanceSnapshot(snapshot: BalanceSnapshot): Promise<void> {
+    this.must()
+      .prepare(
+        `INSERT INTO balance_snapshots (ts, currency, normal, bonus, totalCosts, source)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(ts) DO UPDATE SET
+          currency = excluded.currency, normal = excluded.normal, bonus = excluded.bonus,
+          totalCosts = excluded.totalCosts, source = excluded.source`,
+      )
+      .run(
+        Math.round(snapshot.ts),
+        snapshot.currency,
+        snapshot.normal,
+        snapshot.bonus,
+        snapshot.totalCosts,
+        snapshot.source,
+      )
+  }
+
+  async listBalanceSnapshots(fromMs: number, toMs: number): Promise<BalanceSnapshot[]> {
+    const rows = this.must()
+      .prepare(
+        `SELECT * FROM balance_snapshots WHERE ts >= ? AND ts < ? ORDER BY ts ASC`,
+      )
+      .all(fromMs, toMs) as Record<string, unknown>[]
+    return rows.map(rowToBalance)
+  }
+
+  async latestBalanceSnapshot(beforeMs?: number): Promise<BalanceSnapshot | null> {
+    const row =
+      typeof beforeMs === 'number'
+        ? (this.must()
+            .prepare(`SELECT * FROM balance_snapshots WHERE ts < ? ORDER BY ts DESC LIMIT 1`)
+            .get(beforeMs) as Record<string, unknown> | undefined)
+        : (this.must()
+            .prepare(`SELECT * FROM balance_snapshots ORDER BY ts DESC LIMIT 1`)
+            .get() as Record<string, unknown> | undefined)
+    return row ? rowToBalance(row) : null
+  }
+
+  async pruneBalanceSnapshots(cutoffMs: number): Promise<number> {
+    const result = this.must()
+      .prepare(`DELETE FROM balance_snapshots WHERE ts < ?`)
+      .run(cutoffMs)
+    return Number(result?.changes) || 0
+  }
+
   private must(): SqliteDb {
     if (!this.db) throw new Error('sqlite store not initialized')
     return this.db
@@ -439,18 +508,18 @@ export class SqlitePetStore implements PetStore {
 
 // ---------------------------------------------------------------------------
 // JSON 实现（降级）
-// ---------------------------------------------------------------------------
 
 interface JsonData {
   schemaVersion: 1
   tasks: TaskSession[]
   toolCalls: ToolCallRecord[]
   settings: Record<string, unknown> | null
+  balances: BalanceSnapshot[]
 }
 
 export class JsonPetStore implements PetStore {
   readonly backend = 'json' as const
-  private data: JsonData = { schemaVersion: 1, tasks: [], toolCalls: [], settings: null }
+  private data: JsonData = { schemaVersion: 1, tasks: [], toolCalls: [], settings: null, balances: [] }
 
   constructor(private readonly jsonPath: string) {}
 
@@ -464,6 +533,7 @@ export class JsonPetStore implements PetStore {
         tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
         toolCalls: Array.isArray(parsed.toolCalls) ? parsed.toolCalls : [],
         settings: parsed.settings ?? null,
+        balances: Array.isArray(parsed.balances) ? parsed.balances : [],
       }
     } catch {
       // 首次运行：文件不存在。
@@ -584,6 +654,38 @@ export class JsonPetStore implements PetStore {
     return toAggregate(tasks)
   }
 
+  async saveBalanceSnapshot(snapshot: BalanceSnapshot): Promise<void> {
+    const ts = Math.round(snapshot.ts)
+    const index = this.data.balances.findIndex((item) => item.ts === ts)
+    const record: BalanceSnapshot = { ...snapshot, ts }
+    if (index >= 0) this.data.balances[index] = record
+    else this.data.balances.push(record)
+    this.data.balances.sort((a, b) => a.ts - b.ts)
+    // 防 JSON 无限膨胀：只保留最近 4000 条（30 分钟采样约 83 天）。
+    if (this.data.balances.length > 4_000) this.data.balances = this.data.balances.slice(-4_000)
+    await this.flush()
+  }
+
+  async listBalanceSnapshots(fromMs: number, toMs: number): Promise<BalanceSnapshot[]> {
+    return this.data.balances.filter((item) => item.ts >= fromMs && item.ts < toMs)
+  }
+
+  async latestBalanceSnapshot(beforeMs?: number): Promise<BalanceSnapshot | null> {
+    for (let i = this.data.balances.length - 1; i >= 0; i -= 1) {
+      const item = this.data.balances[i]
+      if (typeof beforeMs !== 'number' || item.ts < beforeMs) return item
+    }
+    return null
+  }
+
+  async pruneBalanceSnapshots(cutoffMs: number): Promise<number> {
+    const before = this.data.balances.length
+    this.data.balances = this.data.balances.filter((item) => item.ts >= cutoffMs)
+    const removed = before - this.data.balances.length
+    if (removed > 0) await this.flush()
+    return removed
+  }
+
   private async flush(): Promise<void> {
     const tempPath = `${this.jsonPath}.tmp-${process.pid}`
     await writeFile(tempPath, JSON.stringify(this.data), 'utf8')
@@ -619,6 +721,17 @@ function rowToTask(row: Record<string, unknown>): TaskSession {
     steps: Number(row.steps ?? 0),
     tags: parseTags(String(row.tags ?? '[]')),
     note: String(row.note ?? ''),
+  }
+}
+
+function rowToBalance(row: Record<string, unknown>): BalanceSnapshot {
+  return {
+    ts: Number(row.ts ?? 0),
+    currency: String(row.currency ?? 'CNY'),
+    normal: Number(row.normal ?? 0),
+    bonus: Number(row.bonus ?? 0),
+    totalCosts: row.totalCosts === null || row.totalCosts === undefined ? null : Number(row.totalCosts),
+    source: (row.source ?? 'manual') as BalanceSnapshot['source'],
   }
 }
 

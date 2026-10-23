@@ -28,7 +28,9 @@ import { TaskTracker, finishedViewFromSession } from './state-machine/task-track
 import { BudgetGuard } from './state-machine/budget.js';
 import { computePeriodStats, computeRanking, computeSeries } from './storage/stats.js';
 import { exportSessions, exportToolCalls } from './storage/export.js';
-import { openPetStore } from './storage/store.js';
+import { openPetStore, clampBalanceMinutes } from './storage/store.js';
+import { AccountBalanceSource } from './balance/source.js';
+import { balancePeriodRange, summarizeBalance } from './balance/ledger.js';
 import { OfficialPricingSource } from './pricing/official.js';
 import { SkinRegistry } from './ui/skins.js';
 import { PetServer } from './ui/server.js';
@@ -130,6 +132,99 @@ export function apply(ctx, config = Config({})) {
         }
         await store.saveSettings(settings);
         let currentSettings = settings;
+        // ---- ②b 余额台账（仅登录的 DeepSeek 账号；第三方渠道不查） ----
+        // 凭证走宿主服务（ctx.get('credentials')，官方无 inject 读取通道）；
+        // 账号 grant → platform 的 get_user_summary，失败静默降级，不影响启动。
+        const balanceSource = new AccountBalanceSource({
+            getCredentials: () => {
+                const getter = ctx.get;
+                if (typeof getter !== 'function')
+                    return undefined;
+                try {
+                    return getter.call(ctx, 'credentials');
+                }
+                catch {
+                    return undefined;
+                }
+            },
+            logger: { warn: (message) => log.warn(message) },
+        });
+        const BALANCE_RETENTION_MS = 90 * 24 * 3600 * 1000;
+        let balanceTimer = null;
+        let balanceStartupTimer = null;
+        async function sampleBalance(source, force = false) {
+            if (!currentSettings.balance.enabled) {
+                const last = await store.latestBalanceSnapshot().catch(() => null);
+                return {
+                    ok: true,
+                    enabled: false,
+                    signedIn: false,
+                    at: last?.ts ?? null,
+                    currency: last?.currency ?? currentSettings.currency,
+                    normal: last?.normal ?? 0,
+                    bonus: last?.bonus ?? 0,
+                    totalCosts: last?.totalCosts ?? null,
+                    error: null,
+                    cached: false,
+                };
+            }
+            const reading = await balanceSource.read(force);
+            if (reading.ok) {
+                try {
+                    await store.saveBalanceSnapshot({
+                        ts: reading.ts,
+                        currency: reading.currency,
+                        normal: reading.normal,
+                        bonus: reading.bonus,
+                        totalCosts: reading.totalCosts,
+                        source,
+                    });
+                    await store.pruneBalanceSnapshots(Date.now() - BALANCE_RETENTION_MS);
+                }
+                catch (error) {
+                    log.warn('余额快照落库失败:', error.message);
+                }
+            }
+            return {
+                ok: reading.ok,
+                enabled: true,
+                signedIn: reading.signedIn,
+                at: reading.ts,
+                currency: reading.currency,
+                normal: reading.normal,
+                bonus: reading.bonus,
+                totalCosts: reading.totalCosts,
+                error: reading.error,
+                cached: reading.cached,
+            };
+        }
+        async function balanceSummary(period) {
+            const { from, to } = balancePeriodRange(period);
+            const [points, baseline] = await Promise.all([
+                store.listBalanceSnapshots(from, to).catch(() => []),
+                store.latestBalanceSnapshot(from).catch(() => null),
+            ]);
+            return summarizeBalance({ period, snapshots: points, baseline });
+        }
+        function scheduleBalanceSampling() {
+            if (balanceTimer !== null) {
+                clearInterval(balanceTimer);
+                balanceTimer = null;
+            }
+            if (balanceStartupTimer !== null) {
+                clearTimeout(balanceStartupTimer);
+                balanceStartupTimer = null;
+            }
+            if (!currentSettings.balance.enabled)
+                return;
+            // 启动后 5s 采一次，给当天一个起点；之后按设置间隔采样。
+            balanceStartupTimer = setTimeout(() => { void sampleBalance('startup'); }, 5_000);
+            balanceStartupTimer.unref?.();
+            const intervalMs = currentSettings.balance.intervalMinutes * 60_000;
+            balanceTimer = setInterval(() => { void sampleBalance('timer'); }, intervalMs);
+            balanceTimer.unref?.();
+        }
+        scheduleBalanceSampling();
         // ---- ②a 官方价格源（DeepSeek 定价页自动同步 + 本地缓存）----
         const officialPricing = new OfficialPricingSource({
             dataDir,
@@ -215,6 +310,9 @@ export function apply(ctx, config = Config({})) {
             }
             await store.saveTask(task);
             await store.saveToolCalls(tools);
+            // 任务结束后补一次余额采样：单任务余额差可作费用估算的旁证（异步、失败不拦）。
+            if (currentSettings.balance.enabled)
+                void sampleBalance('task');
             ctx.emit(EVENTS.taskFinished, { task });
             log.info(`task ${task.id} ${task.status}: ${(task.totalTokens / 1000).toFixed(1)}k tok, ` +
                 `${task.cost.toFixed(4)} ${currentSettings.currency}, tools ${task.toolCalls}(${task.toolFail} fail)`);
@@ -298,6 +396,8 @@ export function apply(ctx, config = Config({})) {
             stats: (period) => computePeriodStats(store, period),
             statsSeries: (period) => computeSeries(store, period),
             ranking: (period) => computeRanking(store, period),
+            balance: (force) => sampleBalance('manual', force),
+            balanceSummary: (period) => balanceSummary(period),
             updateSettings,
             togglePause: async () => {
                 currentSettings.paused = !currentSettings.paused;
@@ -471,6 +571,13 @@ export function apply(ctx, config = Config({})) {
                     dailyMaxCost: positiveOrNull(budget.dailyMaxCost),
                 };
             }
+            if (patch.balance && typeof patch.balance === 'object') {
+                const balance = patch.balance;
+                next.balance = {
+                    enabled: typeof balance.enabled === 'boolean' ? balance.enabled : next.balance.enabled,
+                    intervalMinutes: clampBalanceMinutes(balance.intervalMinutes === undefined ? next.balance.intervalMinutes : balance.intervalMinutes),
+                };
+            }
             if (patch.modelPrices && typeof patch.modelPrices === 'object') {
                 const parsed = parsePriceTable(patch.modelPrices);
                 if (parsed)
@@ -480,6 +587,7 @@ export function apply(ctx, config = Config({})) {
             // 自定义行与货币都可能变，重算生效价格表（自定义 > 官方 > 内置）。
             tracker.setPrices(effectivePrices());
             await store.saveSettings(currentSettings);
+            scheduleBalanceSampling();
             pushSnapshot();
             return { ...currentSettings, modelPrices: { ...currentSettings.modelPrices } };
         }
@@ -490,6 +598,14 @@ export function apply(ctx, config = Config({})) {
         // ---- 卸载（可逆清理；顺序与初始化相反） ----
         return async () => {
             officialPricing.stop();
+            if (balanceTimer !== null) {
+                clearInterval(balanceTimer);
+                balanceTimer = null;
+            }
+            if (balanceStartupTimer !== null) {
+                clearTimeout(balanceStartupTimer);
+                balanceStartupTimer = null;
+            }
             if (alertClearTimer !== null)
                 clearTimeout(alertClearTimer);
             await tracker.flushInterrupted();

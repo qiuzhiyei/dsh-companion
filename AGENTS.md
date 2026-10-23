@@ -2,7 +2,7 @@
 
 ## 项目身份
 
-- **`dsh-companion`（DSH 伴侣）**：DSH 的伴飞插件，位于 `D:\Code_Project\Dsh_Plugin_Project\dsh-companion`
+- **`dsh-companion`（DSH 伴侣）**：DSH 的伴侣插件，位于 `D:\Code_Project\Dsh_Plugin_Project\dsh-companion`
 - 前身 `dsh-status-pet` 已退役：**不再被任何 profile 引用**（desktop/verify 都已换成 companion，link 模式），旧项目目录仅作参考，确认稳定后可整目录删除
 - 定位演进：现在 = 状态监测 + 桌宠 + 预算告警 + GUI 内统计面板；**接下来要加 UI 增强功能**（都住这个包里）
 - 显示名一律「DSH 伴侣」；代码标识符保留 pet 前缀（`showPet`、`PetStore`、`pet-dot` 等）是**有意的**——那是机器世界的事，改了无收益有风险

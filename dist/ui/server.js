@@ -187,6 +187,13 @@ export class PetServer {
         if (path === '/api/pricing/refresh' && method === 'POST') {
             return json(res, await this.deps.refreshPricing());
         }
+        if (path === '/api/balance' && method === 'GET') {
+            return json(res, await this.deps.balance(url.searchParams.get('refresh') === '1'));
+        }
+        if (path === '/api/balance/summary' && method === 'GET') {
+            const period = url.searchParams.get('period') === 'month' ? 'month' : 'today';
+            return json(res, await this.deps.balanceSummary(period));
+        }
         if (path === '/api/stats' && method === 'GET') {
             const periodRaw = url.searchParams.get('period') ?? 'today';
             const period = ['today', 'week', 'month', 'all'].includes(periodRaw)

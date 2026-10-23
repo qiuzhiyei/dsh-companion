@@ -161,6 +161,15 @@ export interface PetSettings {
     dailyMaxTokens: number | null
     dailyMaxCost: number | null
   }
+  /**
+   * 余额台账（可选）：只对**登录的 DeepSeek 账号**采样，第三方渠道一律不查。
+   * 开启后按 intervalMinutes 采样，存快照进本地库；双击桌宠可临时查一次。
+   */
+  balance: {
+    enabled: boolean
+    /** 采样间隔（分钟），夹在 5..1440。 */
+    intervalMinutes: number
+  }
 }
 
 /**
@@ -223,6 +232,10 @@ export const DEFAULT_SETTINGS: PetSettings = {
     taskMaxCost: null,
     dailyMaxTokens: null,
     dailyMaxCost: null,
+  },
+  balance: {
+    enabled: false,
+    intervalMinutes: 30,
   },
 }
 
@@ -294,6 +307,60 @@ export interface PetSnapshot {
   settings: PetSettings
   currency: string
   serverUrl: string
+}
+
+// ---------------------------------------------------------------------------
+// 余额台账（仅登录的 DeepSeek 账号；第三方渠道不读取）
+// ---------------------------------------------------------------------------
+
+/** 采样来源：启动 / 定时 / 任务结束 / 手动（双击或面板刷新）。 */
+export type BalanceSource = 'startup' | 'timer' | 'task' | 'manual'
+
+/** 一次余额快照（钱包余额是存量；消耗 = 相邻快照的下降量）。 */
+export interface BalanceSnapshot {
+  ts: number
+  currency: string
+  /** 充值余额（normal_wallets）。 */
+  normal: number
+  /** 赠送余额（bonus_wallets；单独存，避免混进消耗口径）。 */
+  bonus: number
+  /** 平台累计消耗（total_costs，若接口给出）。 */
+  totalCosts: number | null
+  source: BalanceSource
+}
+
+/** /api/balance 的当前视图（双击举牌与面板共用）。 */
+export interface BalanceView {
+  ok: boolean
+  /** 设置里的余额台账开关。 */
+  enabled: boolean
+  /** 是否读到 DeepSeek 账号凭证（未登录 = false）。 */
+  signedIn: boolean
+  at: number | null
+  currency: string
+  normal: number
+  bonus: number
+  totalCosts: number | null
+  /** 失败原因（ok=false 时有值）；不写日志、不上报。 */
+  error: string | null
+  /** 命中缓存（未真正发请求）。 */
+  cached: boolean
+}
+
+/** 日/月余额聚合（/api/balance/summary）。 */
+export interface BalanceSummary {
+  period: 'today' | 'month'
+  currency: string
+  /** 期间净消耗 = 首末快照下降量（充值上升部分单列）。 */
+  spent: number
+  /** 期间疑似充值（相邻快照上升量）。 */
+  topups: number
+  /** 无法归因的跳变（币种变化/赠金到期等）。 */
+  unknown: number
+  /** 期间起点/终点余额（无快照时为 null）。 */
+  start: number | null
+  end: number | null
+  samples: number
 }
 
 // ---------------------------------------------------------------------------
