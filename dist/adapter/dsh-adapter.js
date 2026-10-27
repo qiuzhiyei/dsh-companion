@@ -21,6 +21,14 @@ const TURN_END_OUTCOME = {
     interrupted: 'interrupted',
     forked: 'interrupted',
 };
+/**
+ * 会话侧缓存上限（sessions / lastRoute 两个 Map 共用）。
+ * 只在 dispose 清理 = 长期运行的 DSH 每开一个新会话就永久多占一条，
+ * 慢性泄漏。插入序淘汰最旧；被淘汰的会话下次来事件时按需重建
+ * （sessionInfoOf 从 session.header 现算，lastRoute 由 turn/start 补发
+ * 链路 + store.lastKnownRoute 落库兜底），行为无损。
+ */
+const MAX_CACHED_SESSIONS = 200;
 export class DshAdapter {
     ctx;
     kind = 'dsh';
@@ -37,8 +45,10 @@ export class DshAdapter {
      */
     lastRoute = new Map();
     disposers = [];
+    maxCachedSessions;
     constructor(ctx, options = {}) {
         this.ctx = ctx;
+        this.maxCachedSessions = options.maxCachedSessions ?? MAX_CACHED_SESSIONS;
         const log = options.logEvents === true;
         const sessionInfoOf = (session) => {
             let info = this.sessions.get(String(session.id));
@@ -51,6 +61,7 @@ export class DshAdapter {
                         session.header.origin === 'subagent',
                 };
                 this.sessions.set(String(session.id), info);
+                this.trimSessionCaches();
             }
             return info;
         };
@@ -102,6 +113,36 @@ export class DshAdapter {
     onEvent(listener) {
         return this.bus.on(listener);
     }
+    /**
+     * 会话侧缓存限流：超上限时按插入序淘汰最旧的会话（Map 迭代序 = 插入序）。
+     * openTurns 只收留「正在跑的 turn」（turn/end 即删），不会积累，不参与淘汰；
+     * 淘汰错杀也安全——sessionInfoOf 下次事件按需重建、lastRoute 缺了最多是
+     * 该会话下一轮零 header 时模型名走 store 落库兜底回填。
+     */
+    trimSessionCaches() {
+        // 纯插入序淘汰最旧的（Map 迭代序 = 插入序）。淘汰「正在跑」的会话也安全：
+        // sessionInfoOf 下次事件会从 session.header 现算重建，openTurns/lastRoute
+        // 独立按 sessionId 存取，无悬垂引用。上限极小概率被并发任务顶满，无害。
+        while (this.sessions.size > this.maxCachedSessions) {
+            const oldest = this.sessions.keys().next().value;
+            if (oldest === undefined)
+                break;
+            this.sessions.delete(oldest);
+        }
+        while (this.lastRoute.size > this.maxCachedSessions) {
+            const oldest = this.lastRoute.keys().next().value;
+            if (oldest === undefined)
+                break;
+            this.lastRoute.delete(oldest);
+        }
+    }
+    /** lastRoute 统一写入口：set 即触发限流（三个来源共用）。 */
+    rememberRoute(sessionId, provider, model) {
+        // 已有键 set 不改变 Map 插入序：先删再插，让活跃会话排到队尾（LRU 语义）。
+        this.lastRoute.delete(sessionId);
+        this.lastRoute.set(sessionId, { provider, model });
+        this.trimSessionCaches();
+    }
     async dispose() {
         for (const dispose of this.disposers.splice(0))
             dispose();
@@ -118,7 +159,7 @@ export class DshAdapter {
         if (event.type === 'model/selection') {
             const data = event.data ?? {};
             if (data.model) {
-                this.lastRoute.set(sessionId, { provider: data.provider ?? '', model: data.model });
+                this.rememberRoute(sessionId, data.provider ?? '', data.model);
                 const turn = this.openTurns.get(sessionId);
                 if (turn !== undefined) {
                     this.bus.emit({
@@ -201,10 +242,16 @@ export class DshAdapter {
                 const provider = data.header.config?.provider ?? '';
                 const model = data.header.config?.model ?? '';
                 if (model)
-                    this.lastRoute.set(sessionId, { provider, model });
+                    this.rememberRoute(sessionId, provider, model);
+                // 无打开的 turn 时只更新缓存、不发事件——旧实现发 turn=0 的幽灵
+                // model-route（tracker 匹配不到静默忽略，纯噪音）。缓存会在下一个
+                // turn/start 时补发给新任务，信息不丢。
+                const turn = this.openTurns.get(sessionId);
+                if (turn === undefined)
+                    break;
                 this.bus.emit({
                     kind: 'model-route',
-                    task: taskRefOf(session, this.openTurns.get(sessionId) ?? 0),
+                    task: taskRefOf(session, turn),
                     provider,
                     model,
                     time,
@@ -216,10 +263,13 @@ export class DshAdapter {
                 const data = event.data;
                 if (!data.model)
                     break;
-                this.lastRoute.set(sessionId, { provider: data.provider ?? '', model: data.model });
+                this.rememberRoute(sessionId, data.provider ?? '', data.model);
+                const turn = this.openTurns.get(sessionId);
+                if (turn === undefined)
+                    break;
                 this.bus.emit({
                     kind: 'model-route',
-                    task: taskRefOf(session, this.openTurns.get(sessionId) ?? 0),
+                    task: taskRefOf(session, turn),
                     provider: data.provider ?? '',
                     model: data.model,
                     time,

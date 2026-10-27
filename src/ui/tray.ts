@@ -24,15 +24,46 @@ export interface TrayControllerOptions {
   shell: 'off' | 'auto'
   /** 数据目录：Electron 运行时按需下载后存在这里（<dataDir>/runtime）。 */
   dataDir: string
+  /** 可注入时钟（ToastLimiter 测试用）。 */
+  now?(): number
+}
+
+/**
+ * Toast 限流：滚动 1 小时窗口内最多 max 条。
+ * 旧实现是「每进程 8 条」——DSH 开一整天，前半天把额度用光后所有告警
+ * （含余额低告警）永久静音。窗口滚动能防刷屏又不牺牲长会话的告警可达性。
+ */
+export class ToastLimiter {
+  private readonly stamps: number[] = []
+
+  constructor(
+    private readonly max = 8,
+    private readonly windowMs = 3_600_000,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  /** 允许则记账并返回 true；窗口满返回 false。 */
+  allow(): boolean {
+    const now = this.now()
+    // 淘汰窗口外的旧记录（stamps 单调递增，从头丢即可）。
+    while (this.stamps.length > 0 && now - this.stamps[0] >= this.windowMs) {
+      this.stamps.shift()
+    }
+    if (this.stamps.length >= this.max) return false
+    this.stamps.push(now)
+    return true
+  }
 }
 
 export class TrayController {
   private shellProcess: ReturnType<typeof spawn> | null = null
-  private toastCount = 0
+  private readonly toastLimiter: ToastLimiter
   /** dispose 之后不再拉起壳（下载可能还在途中）。 */
   private stopped = false
 
-  constructor(private readonly options: TrayControllerOptions) {}
+  constructor(private readonly options: TrayControllerOptions) {
+    this.toastLimiter = new ToastLimiter(8, 3_600_000, options.now ?? Date.now)
+  }
 
   get backend(): 'electron' | 'console' {
     return this.shellProcess && this.shellProcess.exitCode === null ? 'electron' : 'console'
@@ -130,11 +161,10 @@ export class TrayController {
     }
   }
 
-  /** 预算告警通知：日志 + Windows Toast（best-effort）。 */
+  /** 预算告警通知：日志 + Windows Toast（best-effort；每小时最多 8 条防刷屏）。 */
   async notify(message: string): Promise<void> {
     console.warn(`[dsh-companion] ⚠ ${message}`)
-    if (this.options.toast && this.toastCount < 8) {
-      this.toastCount += 1
+    if (this.options.toast && this.toastLimiter.allow()) {
       await this.windowsToast(message)
     }
   }

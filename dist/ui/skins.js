@@ -127,9 +127,6 @@ export class SkinRegistry {
             return null;
         }
     }
-    invalidate() {
-        this.cache.clear();
-    }
     async loadUncached(name) {
         const dir = resolvePath(this.root, name);
         let manifest;

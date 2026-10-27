@@ -25,7 +25,7 @@ icon.svg                插件图标（原创 SVG，≤256KiB，经 exports['./i
 README.md / README.en.md  中文主说明 / 英文版（GitHub 门面，截图在 docs/images/）
 LICENSE                 MIT
 docs/                   pitfalls.md（公共坑与 FAQ）、whale-skin-brief.md（皮肤出图交接书）、images/（截图）
-tests/                  node --test，86 项
+tests/                  node --test，105 项
 dist/                   编译产物（**纳入版本库**：git 安装直接用，无需构建；发布前 pnpm run build 后提交）
 .github/workflows/ci.yml CI：node 22.19 + 24 矩阵 → install → build → dist 同步校验 → node --test
 ```
@@ -47,7 +47,7 @@ dist/                   编译产物（**纳入版本库**：git 安装直接用
 
 ```powershell
 pnpm run build        # 双 tsc
-pnpm test             # node --test，86 项应全绿
+pnpm test             # node --test，105 项应全绿
 # 挂测试（防卡死）：
 $job = Start-Job -ScriptBlock { Set-Location <项目根>; pnpm test 2>&1 | Out-String }
 Wait-Job $job -Timeout 160
@@ -74,6 +74,9 @@ PowerShell 输出中文会 GBK 乱码——只是显示问题，不影响文件�
 - **`showPet` 语义**：控制**桌面悬浮伴侣**（Electron 窗口）显隐，跟 GUI 卡片无关；卡片里永远不放伴侣动画
 - 皮肤下拉默认皮肤（whale 鲸鱼娘）永远排第一，其余按字母序。**fisherman（钓鱼佬）与 monitor（状态监测员）均已按用户要求整体移除**（目录删掉；迁移 v2：skin ∈ {fisherman, monitor} → whale，`whaleMigrated` 标记；迁移 v3：skin=monitor → whale，`monitorRemoved` 标记——兜住 v2 之后又显式选过 monitor 的用户；v1 迁移代码与 skinMigrated 字段已整体删除，老库残值被 mergeSettings 静默忽略。mergeSettings 必须如实持久化迁移标记——曾有标记被丢弃导致迁移每次启动重跑，靠幂等没出事）。**鲸鱼娘素材 = AI 生成 PNG**（流程：本会话出提示词交接书 docs/whale-skin-brief.md → 用户交给 WorkBuddy 出图 → 回传接入；第一版手绘 SMIL SVG 占位被用户嫌丑已整体替换——教训：美术活该交给生图 AI，工程侧只定规格和接入）。**5 套服装**：whale（JK学院风，默认）/ whale-ol（秘书OL风）/ whale-police（女警风）/ whale-hanfu（中华娘）/ whale-qipao（旗袍风），角色同为二头身鲸鱼娘（头顶背鳍 + 鲸鱼尾）。每套源 = WorkBuddy 帧包两批：7 动作帧（idle/blink/walk/wave/drag/sleep/jump）+ **11 拟人化帧**（用户追加要求「运行/不运行也要拟人化，每套性格还要不一样」：08_error 委屈哭 / 09_shock 惊吓 / 10_pat 被摸舒服 / 11_angry 鼓腮生气 / 12_dizzy 晕头 / 13_rest 待机放松 / 14_ready 干劲 / 15_think 沉思 / 16_work 卖力 / 17_relief 如释重负 / 18_cheer 欢呼；每套按服装人设演绎同款情绪——JK 元气夸张 / OL 克制优雅 / 女警干练警觉 / 中华娘娴静柔和 / 旗袍优雅傲娇）。**现行状态映射（拟人化帧优先，缺帧回退旧动作帧）**：idle←rest、casting←ready、waiting←think、hooked←work、reeling←relief、done←cheer、error←error、interrupted←shock。**反应帧** = manifest 可选 `reactions` 段（pat/angry/dizzy/drag；SkinRegistry.resolvedReactions 只收真实存在的帧、无回退链；SkinInfo.reactions 经 /api/skins 下发；/skins 路由**先按状态查再按反应帧查**）：pat←被摸舒服、angry←鼓腮生气、dizzy←蚊香眼、drag←05_drag 被拎起。悬浮页接线（pages.ts showReaction/clearReaction）：左键抚摸→pat 帧 1.5s、连点 5 下彩蛋→dizzy 帧 3s（撑满冷静期）、拖拽移动中→drag 帧常驻（ms=0）、拖拽落地→angry 帧 2s（无 angry 帧也要 clearReaction 收掉 drag 帧）；**状态帧优先**——applySkin 切状态立即顶掉反应帧并撤销在途计时；无反应帧的皮肤（自制皮肤）经 reactions.indexOf 判定退回纯 CSS 动画，完全向后兼容。接入脚本模式（%TEMP%\whale-integrate2.py）：①透明预检（RGBA 四角 alpha=0——Electron 透明窗下不透明会变白底板）②每套**两包全 18 帧联合 bbox + 8px padding 统一裁剪**（所有状态/反应同一裁剪框 → 切换不跳）③等比缩到高 400px（显示区 220×200、`#pet img` 有 object-fit: contain，竖图不拉伸）④PNG optimize（每帧 ≤150KB）。宠物页 URL 硬编码 `.svg` 扩展名**无碍**：服务端 /skins 路由剥扩展名按 manifest 解析真实文件。labels 全中性文案；人设口吻跟服装走（SKIN_LINES 映射，见桌宠交互 bullet）；皮肤名 `whale` 不可改（迁移与测试引用）。WorkBuddy 源目录另有立绘透明底 PNG / 扁平矢量风 / SVG 矢量版三套未接入素材（备用）
 - 事件通道命名空间 `companion/*`（state-change / task-finished / budget-alert）
+- **Toast 限流是「滚动 1 小时窗口 8 条」不是「每进程 8 条」**（tray.ts ToastLimiter）：旧口径用光额度后整个进程生命周期永久静音——DSH 开一整天，后半天的预算/余额告警全部弹不出来。别再改回进程级计数
+- **dsh-adapter 的会话侧缓存有上限**（sessions/lastRoute 各 200，插入序淘汰）：只在 dispose 清理 = 长期运行每开一个新会话永久多占一条（慢性泄漏）。淘汰无损：sessionInfoOf 下次事件从 session.header 现算重建，落库侧还有 store.lastKnownRoute 兜底。**request/header、request/context 在没有打开的 turn 时只进缓存不发事件**——旧实现发 turn=0 的幽灵 model-route（tracker 静默忽略，纯噪音）
+- **SkinRegistry 没有 invalidate()**（定义后从未被调用的死代码，已删）：皮肤缓存有意永不失效，改 manifest 需重启 DSH 生效
 - 详情类数字都进 `/panel` 统计页，角标只留「今日 X token」一行
 - **模型价格三层解析**：自定义行（settings.modelPrices = 纯用户覆盖，不再持久化默认值）> 官方自动抓取（`src/pricing/official.ts` 拉 api-docs.deepseek.com 定价页，模型名从页面动态解析，PEAK 价、USD×`usdCnyRate` 折算，启动 3s 后首抓 + 每 24h 刷新 + 设置页手动同步；缓存在 dataDir/pricing-official.json，离线沿用旧价）> 内置兜底 DEFAULT_MODEL_PRICES。**别再想从 DSH 本地拿价**：dsh-token-meter 的 route-pricing 是 token 计数模块、usage-ledger.json 的 cost 恒为 0，DSH 不保存货币价格；免费渠道模型（aliyun-bailian 的 glm/qwen 等）无公开价源按 0 计，与 DSH 台账一致。**计费按 provider 门控（用户明确口径：只统计登录账号的任务，渠道的不用管）**：只有 provider ∈ {deepseek-account（账号登录）、deepseek-official（API key）} 的任务才计费——两者都直连 api.deepseek.com；自定义渠道（如 aliyun-bailian，本机 DSH 默认走它，见 profiles/desktop/cordis.patch.yml）无论模型名与官方多像一律不计费，Token 照记、费用恒 0（cost.ts isPricedProvider，tracker 与 BudgetGuard 双门控）。渠道别名映射（deepseek-v4.1-flash ↔ deepseek-flash）曾做过一版，后按用户要求移除
 - **缓存命中单独计价**：`ModelPrice.cacheInputPerMillion`（缺省退回 input 价）——DeepSeek 缓存命中价约为未命中的 1/50，不拆分对缓存重度任务会严重高估

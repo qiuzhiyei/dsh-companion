@@ -170,10 +170,6 @@ export class SkinRegistry {
     }
   }
 
-  invalidate(): void {
-    this.cache.clear()
-  }
-
   private async loadUncached(name: string): Promise<Skin | null> {
     const dir = resolvePath(this.root, name)
     let manifest: SkinManifest
