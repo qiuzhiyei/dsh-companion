@@ -1571,7 +1571,6 @@ export function panelPageHTML(): string {
               <button class="act-btn" id="btnPauseToggle">⏸ 暂停统计</button>
               <button class="act-btn" id="btnExportCsv">⬇ 任务 CSV</button>
               <button class="act-btn" id="btnExportJson">⬇ 任务 JSON</button>
-              <button class="act-btn" id="btnExportToolsCsv">⬇ 工具调用 CSV</button>
             </div>
           </div>
           <div class="set-card tone-cyan" id="mockFieldset">
@@ -1826,6 +1825,7 @@ $('histReset').onclick = () => {
 }
 $('histRefresh').onclick = () => loadHistory(true)
 // 导出当前筛选结果（与页面同口径，不含分页）：规则见 /api/export/sessions。
+// 日期上界与 histParams() 一致用「次日 00:00」右开区间（曾差 1ms，会漏掉当天末尾任务）。
 $('histExport').onclick = () => {
   const p = new URLSearchParams()
   p.set('format', 'csv')
@@ -1837,7 +1837,7 @@ $('histExport').onclick = () => {
   if (model) p.set('model', model)
   if (status) p.set('status', status)
   if (from) p.set('from', String(new Date(from + 'T00:00:00').getTime()))
-  if (to) p.set('to', String(new Date(to + 'T23:59:59.999').getTime()))
+  if (to) p.set('to', String(new Date(to + 'T00:00:00').getTime() + 86400000))
   if (q) p.set('q', q)
   window.location = '/api/export/sessions?' + p.toString()
 }
@@ -2445,7 +2445,6 @@ $('mockStart').onclick = () => {
 }
 $('btnExportCsv').onclick = () => { window.location = '/api/export/sessions?format=csv' }
 $('btnExportJson').onclick = () => { window.location = '/api/export/sessions?format=json' }
-$('btnExportToolsCsv').onclick = () => { window.location = '/api/export/tools?format=csv' }
 
 // ---- 会话管理：清单 + 批量彻底删除（node 端 SessionDeleter 逐会话闸门复用） ----
 let smSessions = []

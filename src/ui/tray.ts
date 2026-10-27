@@ -26,18 +26,6 @@ export interface TrayControllerOptions {
   dataDir: string
 }
 
-/** 托盘菜单（Electron 壳托盘提供；无壳时退化为日志）。 */
-export interface TrayMenu {
-  showHide: () => void
-  togglePause: () => void
-  history: () => void
-  stats: () => void
-  settings: () => void
-  switchSkin: () => void
-  exportData: () => void
-  quit: () => void
-}
-
 export class TrayController {
   private shellProcess: ReturnType<typeof spawn> | null = null
   private toastCount = 0
@@ -51,8 +39,7 @@ export class TrayController {
   }
 
   /** 尝试拉起 Electron 壳（shell: auto 且本机可解析 electron 时）。 */
-  async start(menu: TrayMenu): Promise<void> {
-    void menu // 菜单动作实际由 Web 页 / Electron 壳菜单触发，这里仅保形
+  async start(): Promise<void> {
     if (this.options.shell === 'auto') {
       await this.spawnElectronShell()
     }

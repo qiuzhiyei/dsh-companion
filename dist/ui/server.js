@@ -296,9 +296,7 @@ export class PetServer {
                 toMs: clampInt(url.searchParams.get('to'), 0, 8_640_000_000_000_000, 0),
                 q: (url.searchParams.get('q') ?? '').trim().slice(0, 120),
             };
-            const result = path.startsWith('/api/export/tools')
-                ? await this.deps.exportTools(format)
-                : await this.deps.exportSessions(format, filter);
+            const result = await this.deps.exportSessions(format, filter);
             res.writeHead(200, {
                 'content-type': result.contentType,
                 'content-disposition': `attachment; filename="${result.filename}"`,

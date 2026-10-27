@@ -115,18 +115,6 @@ export interface TaskSession {
   note: string
 }
 
-/** 单次工具调用记录。 */
-export interface ToolCallRecord {
-  /** 主键：`<taskKey>:<callId>`。 */
-  id: string
-  taskKey: string
-  callId: string
-  name: string
-  startTime: number
-  endTime: number | null
-  status: 'running' | 'ok' | 'fail'
-}
-
 /** 伴侣可持久化设置（面板可改，存储层落盘；Config 提供默认值）。 */
 export interface PetSettings {
   skin: string

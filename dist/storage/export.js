@@ -28,15 +28,6 @@ const TASK_CSV_FIELDS = [
     'tags',
     'note',
 ];
-const TOOL_CSV_FIELDS = [
-    'id',
-    'taskKey',
-    'callId',
-    'name',
-    'startTime',
-    'endTime',
-    'status',
-];
 function csvEscape(value) {
     if (value === null || value === undefined)
         return '';
@@ -72,21 +63,6 @@ export async function exportSessions(store, format, limit = 5_000, filter) {
         filename: `dsh-companion-sessions-${stamp()}.json`,
         contentType: 'application/json; charset=utf-8',
         body: `${JSON.stringify({ schemaVersion: 1, exportedAt: Date.now(), tasks }, null, 2)}\n`,
-    };
-}
-export async function exportToolCalls(store, format, limit = 20_000) {
-    const tools = await store.listToolCalls(limit);
-    if (format === 'csv') {
-        return {
-            filename: `dsh-companion-tool-calls-${stamp()}.csv`,
-            contentType: 'text/csv; charset=utf-8',
-            body: rowsToCsv(TOOL_CSV_FIELDS, tools),
-        };
-    }
-    return {
-        filename: `dsh-companion-tool-calls-${stamp()}.json`,
-        contentType: 'application/json; charset=utf-8',
-        body: `${JSON.stringify({ schemaVersion: 1, exportedAt: Date.now(), toolCalls: tools }, null, 2)}\n`,
     };
 }
 function hasFilter(filter) {

@@ -6,7 +6,7 @@
  */
 
 import type { PetStore } from './store.js'
-import type { TaskSession, ToolCallRecord } from '../types.js'
+import type { TaskSession } from '../types.js'
 
 /** 导出筛选（与历史页共用口径；缺省 = 全部）。 */
 export interface ExportFilter {
@@ -40,16 +40,6 @@ const TASK_CSV_FIELDS: ReadonlyArray<keyof TaskSession> = [
   'steps',
   'tags',
   'note',
-]
-
-const TOOL_CSV_FIELDS: ReadonlyArray<keyof ToolCallRecord> = [
-  'id',
-  'taskKey',
-  'callId',
-  'name',
-  'startTime',
-  'endTime',
-  'status',
 ]
 
 function csvEscape(value: unknown): string {
@@ -98,26 +88,6 @@ export async function exportSessions(
     filename: `dsh-companion-sessions-${stamp()}.json`,
     contentType: 'application/json; charset=utf-8',
     body: `${JSON.stringify({ schemaVersion: 1, exportedAt: Date.now(), tasks }, null, 2)}\n`,
-  }
-}
-
-export async function exportToolCalls(
-  store: PetStore,
-  format: 'csv' | 'json',
-  limit = 20_000,
-): Promise<ExportResult> {
-  const tools = await store.listToolCalls(limit)
-  if (format === 'csv') {
-    return {
-      filename: `dsh-companion-tool-calls-${stamp()}.csv`,
-      contentType: 'text/csv; charset=utf-8',
-      body: rowsToCsv(TOOL_CSV_FIELDS, tools as unknown as Record<string, unknown>[]),
-    }
-  }
-  return {
-    filename: `dsh-companion-tool-calls-${stamp()}.json`,
-    contentType: 'application/json; charset=utf-8',
-    body: `${JSON.stringify({ schemaVersion: 1, exportedAt: Date.now(), toolCalls: tools }, null, 2)}\n`,
   }
 }
 

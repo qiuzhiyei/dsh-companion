@@ -1,8 +1,12 @@
 /**
  * dsh-companion — 任务追踪器。
  *
- * 把 PetEvent 聚合成 TaskSession（一个 DSH turn 一次任务）与 ToolCallRecord。
+ * 把 PetEvent 聚合成 TaskSession（一个 DSH turn 一次任务）。
  * 任务结束时计算费用、交由回调持久化，并保留“最近一次快照”供伴侣展示。
+ *
+ * 工具调用只保留任务级计数（toolCalls/toolSuccess/toolFail，callId 去重）；
+ * 逐次明细记录（ToolCallRecord/tool_calls 表）已退役——面板无消费方，
+ * 唯一出口「工具调用 CSV」导出也已一并移除。
  *
  * 口径说明（对齐 dsh-llm TokenUsage 的 DISJOINT 计数）：
  * - promptTokens    = inputTokens + cachedTokens（计费口径的输入）
@@ -19,28 +23,30 @@ import type {
   ModelPriceTable,
   TaskOutcome,
   TaskSession,
-  ToolCallRecord,
   UsageSnapshot,
 } from '../types.js'
 import { computeCost, isPricedProvider, priceFor } from './cost.js'
 
 interface RunningTask {
   session: TaskSession
-  tools: Map<string, ToolCallRecord>
+  /** 已见过的工具 callId（tool-start 去重、tool-end 判定成败归属）。 */
+  toolIds: Set<string>
+  /** tool-end 已结算的 callId（防重复 end 事件重复计数）。 */
+  endedToolIds: Set<string>
   subagent: boolean
 }
 
 export interface TaskTrackerOptions {
   modelPrices: ModelPriceTable
   /** 任务完成回调（持久化 + 发事件由上层接线）。 */
-  onFinish?: (task: TaskSession, tools: ToolCallRecord[]) => void | Promise<void>
+  onFinish?: (task: TaskSession) => void | Promise<void>
 }
 
 export class TaskTracker {
   private readonly running = new Map<string, RunningTask>()
   private lastResult: FinishedTaskView | null = null
   private readonly modelPrices: ModelPriceTable
-  private readonly onFinish?: (task: TaskSession, tools: ToolCallRecord[]) => void | Promise<void>
+  private readonly onFinish?: (task: TaskSession) => void | Promise<void>
 
   constructor(options: TaskTrackerOptions) {
     this.modelPrices = options.modelPrices ?? {}
@@ -118,17 +124,9 @@ export class TaskTracker {
       case 'tool-start': {
         const task = this.running.get(taskKey(event.task))
         if (!task) break
-        const record: ToolCallRecord = {
-          id: `${task.session.id}:${event.callId}`,
-          taskKey: task.session.id,
-          callId: event.callId,
-          name: event.name,
-          startTime: event.time,
-          endTime: null,
-          status: 'running',
-        }
-        if (!task.tools.has(event.callId)) {
-          task.tools.set(event.callId, record)
+        // 同一 callId 重复 start 不重复计数。
+        if (!task.toolIds.has(event.callId)) {
+          task.toolIds.add(event.callId)
           task.session.toolCalls += 1
         }
         break
@@ -136,13 +134,11 @@ export class TaskTracker {
       case 'tool-end': {
         const task = this.running.get(taskKey(event.task))
         if (!task) break
-        const record = task.tools.get(event.callId)
-        if (!record) break
-        record.endTime = event.time
-        record.status = event.ok ? 'ok' : 'fail'
+        // 无 start 的 end（或重复 end）不计成败，避免计数虚高。
+        if (!task.toolIds.has(event.callId) || task.endedToolIds.has(event.callId)) break
+        task.endedToolIds.add(event.callId)
         if (event.ok) task.session.toolSuccess += 1
         else task.session.toolFail += 1
-        if (record.name === '' && event.name) record.name = event.name
         break
       }
       default:
@@ -164,7 +160,8 @@ export class TaskTracker {
     const id = `${task.sessionId}:${task.turn}`
     this.running.set(key, {
       subagent: task.subagent,
-      tools: new Map(),
+      toolIds: new Set(),
+      endedToolIds: new Set(),
       session: {
         id,
         sessionId: task.sessionId,
@@ -225,7 +222,7 @@ export class TaskTracker {
       this.lastResult = toFinishedView(session)
     }
     try {
-      await this.onFinish?.(session, [...entry.tools.values()])
+      await this.onFinish?.(session)
     } catch (error) {
       console.error('[dsh-companion] persist finished task failed:', error)
     }

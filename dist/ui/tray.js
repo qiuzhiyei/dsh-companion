@@ -27,8 +27,7 @@ export class TrayController {
         return this.shellProcess && this.shellProcess.exitCode === null ? 'electron' : 'console';
     }
     /** 尝试拉起 Electron 壳（shell: auto 且本机可解析 electron 时）。 */
-    async start(menu) {
-        void menu; // 菜单动作实际由 Web 页 / Electron 壳菜单触发，这里仅保形
+    async start() {
         if (this.options.shell === 'auto') {
             await this.spawnElectronShell();
         }

@@ -62,7 +62,6 @@ export interface PetServerDeps {
   togglePause(): Promise<PetSnapshot>
   mockStart(scenario: MockScenario): Promise<{ ok: boolean; message: string }>
   exportSessions(format: ExportFormat, filter?: ExportFilter): Promise<ExportResult>
-  exportTools(format: ExportFormat): Promise<ExportResult>
   /** 删除 DSH 会话（registry 除名 + 文件彻底删除；UI 增强模块 session-manager）。 */
   deleteDshSession(sessionId: string): Promise<DeleteOutcome>
   /** 会话清单（面板「会话管理」卡：标题/工作区/磁盘占用/归档态）。 */
@@ -377,9 +376,7 @@ export class PetServer {
         toMs: clampInt(url.searchParams.get('to'), 0, 8_640_000_000_000_000, 0),
         q: (url.searchParams.get('q') ?? '').trim().slice(0, 120),
       }
-      const result = path.startsWith('/api/export/tools')
-        ? await this.deps.exportTools(format)
-        : await this.deps.exportSessions(format, filter)
+      const result = await this.deps.exportSessions(format, filter)
       res.writeHead(200, {
         'content-type': result.contentType,
         'content-disposition': `attachment; filename="${result.filename}"`,

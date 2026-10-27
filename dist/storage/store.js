@@ -161,17 +161,14 @@ export class SqlitePetStore {
         this.db.exec('PRAGMA journal_mode = WAL');
         this.db.exec(`CREATE TABLE IF NOT EXISTS task_sessions (${TASK_COLUMNS})`);
         // 注：早期版本加过 finalContextTokens 列，现已弃用；旧库残留该列不影响读写。
-        this.db.exec(`CREATE TABLE IF NOT EXISTS tool_calls (
-      id TEXT PRIMARY KEY, taskKey TEXT NOT NULL, callId TEXT NOT NULL,
-      name TEXT NOT NULL DEFAULT '', startTime INTEGER NOT NULL, endTime INTEGER,
-      status TEXT NOT NULL)`);
+        // tool_calls 明细表已退役（无消费方，仅导出 CSV 一条死路）：老库直接删表回收空间。
+        this.db.exec('DROP TABLE IF EXISTS tool_calls');
         this.db.exec(`CREATE TABLE IF NOT EXISTS pet_settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
         this.db.exec(`CREATE TABLE IF NOT EXISTS balance_snapshots (
       ts INTEGER PRIMARY KEY, currency TEXT NOT NULL, normal REAL NOT NULL DEFAULT 0,
       bonus REAL NOT NULL DEFAULT 0, totalCosts REAL, source TEXT NOT NULL DEFAULT '')`);
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_start ON task_sessions(startTime)');
-        this.db.exec('CREATE INDEX IF NOT EXISTS idx_tools_task ON tool_calls(taskKey)');
     }
     async close() {
         this.db?.close();
@@ -208,17 +205,6 @@ export class SqlitePetStore {
           toolFail = excluded.toolFail, steps = excluded.steps,
           tags = excluded.tags, note = excluded.note`)
             .run(task.id, task.sessionId, task.turn, task.project, task.workspace, task.provider, task.model, task.startTime, task.endTime, task.status, task.promptTokens, task.completionTokens, task.totalTokens, task.cachedTokens, task.reasoningTokens, task.cost, task.toolCalls, task.toolSuccess, task.toolFail, task.steps, JSON.stringify(task.tags), task.note);
-    }
-    async saveToolCalls(tools) {
-        if (tools.length === 0)
-            return;
-        const stmt = this.must().prepare(`INSERT INTO tool_calls (id, taskKey, callId, name, startTime, endTime, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-        endTime = excluded.endTime, status = excluded.status, name = excluded.name`);
-        for (const tool of tools) {
-            stmt.run(tool.id, tool.taskKey, tool.callId, tool.name, tool.startTime, tool.endTime, tool.status);
-        }
     }
     async listTasks(limit, offset = 0) {
         const rows = this.must()
@@ -262,12 +248,6 @@ export class SqlitePetStore {
             .prepare('SELECT * FROM task_sessions' + whereSql + ' ORDER BY startTime DESC, id DESC LIMIT ? OFFSET ?')
             .all(...args, Math.max(1, query.limit), query.offset ?? 0);
         return { tasks: rows.map(rowToTask), total: Number(totalRow.n) || 0 };
-    }
-    async listToolCalls(limit) {
-        const rows = this.must()
-            .prepare(`SELECT * FROM tool_calls ORDER BY startTime DESC LIMIT ?`)
-            .all(Math.max(1, limit));
-        return rows.map(rowToToolCall);
     }
     async countTasks() {
         const row = this.must().prepare('SELECT COUNT(*) AS n FROM task_sessions').get();
@@ -356,7 +336,7 @@ export class SqlitePetStore {
 export class JsonPetStore {
     jsonPath;
     backend = 'json';
-    data = { schemaVersion: 1, tasks: [], toolCalls: [], settings: null, balances: [] };
+    data = { schemaVersion: 1, tasks: [], settings: null, balances: [] };
     constructor(jsonPath) {
         this.jsonPath = jsonPath;
     }
@@ -368,7 +348,6 @@ export class JsonPetStore {
             this.data = {
                 schemaVersion: 1,
                 tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
-                toolCalls: Array.isArray(parsed.toolCalls) ? parsed.toolCalls : [],
                 settings: parsed.settings ?? null,
                 balances: Array.isArray(parsed.balances) ? parsed.balances : [],
             };
@@ -400,21 +379,6 @@ export class JsonPetStore {
         }
         await this.flush();
     }
-    async saveToolCalls(tools) {
-        if (tools.length === 0)
-            return;
-        for (const tool of tools) {
-            const index = this.data.toolCalls.findIndex((item) => item.id === tool.id);
-            if (index >= 0)
-                this.data.toolCalls[index] = tool;
-            else
-                this.data.toolCalls.push(tool);
-        }
-        if (this.data.toolCalls.length > 20_000) {
-            this.data.toolCalls = this.data.toolCalls.slice(-20_000);
-        }
-        await this.flush();
-    }
     async listTasks(limit, offset = 0) {
         const sorted = [...this.data.tasks].sort((a, b) => b.startTime - a.startTime);
         return sorted.slice(offset, offset + Math.max(1, limit));
@@ -442,10 +406,6 @@ export class JsonPetStore {
         return this.data.tasks
             .filter((task) => task.startTime >= fromMs && task.startTime < toMs)
             .sort((a, b) => a.startTime - b.startTime);
-    }
-    async listToolCalls(limit) {
-        const sorted = [...this.data.toolCalls].sort((a, b) => b.startTime - a.startTime);
-        return sorted.slice(0, Math.max(1, limit));
     }
     async countTasks() {
         return this.data.tasks.length;
@@ -567,17 +527,6 @@ function rowToBalance(row) {
         bonus: Number(row.bonus ?? 0),
         totalCosts: row.totalCosts === null || row.totalCosts === undefined ? null : Number(row.totalCosts),
         source: (row.source ?? 'manual'),
-    };
-}
-function rowToToolCall(row) {
-    return {
-        id: String(row.id),
-        taskKey: String(row.taskKey ?? ''),
-        callId: String(row.callId ?? ''),
-        name: String(row.name ?? ''),
-        startTime: Number(row.startTime ?? 0),
-        endTime: row.endTime === null || row.endTime === undefined ? null : Number(row.endTime),
-        status: (row.status ?? 'ok'),
     };
 }
 export async function openPetStore(dataDir, mode = 'auto') {

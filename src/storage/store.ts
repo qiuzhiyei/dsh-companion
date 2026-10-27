@@ -8,7 +8,7 @@
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { TaskOutcome, TaskSession, ToolCallRecord } from '../types.js'
+import type { TaskOutcome, TaskSession } from '../types.js'
 import type { BalanceSnapshot } from '../types.js'
 import { DEFAULT_MODEL_PRICES, DEFAULT_SETTINGS } from '../types.js'
 import type { ModelPrice, PetSettings } from '../types.js'
@@ -67,13 +67,11 @@ export interface PetStore {
   loadSettings(): Promise<PetSettings>
   saveSettings(settings: PetSettings): Promise<void>
   saveTask(task: TaskSession): Promise<void>
-  saveToolCalls(tools: readonly ToolCallRecord[]): Promise<void>
   listTasks(limit: number, offset?: number): Promise<TaskSession[]>
   /** 带筛选的历史查询（分页 + 命中总数；筛选条件全空时等价于 listTasks+countTasks）。 */
   queryTasks(query: TaskQuery): Promise<{ tasks: TaskSession[]; total: number }>
   /** 时间范围内的任务（升序；图表序列用）。 */
   listTasksBetween(fromMs: number, toMs: number): Promise<TaskSession[]>
-  listToolCalls(limit: number): Promise<ToolCallRecord[]>
   countTasks(): Promise<number>
   /** 出现过的模型名（去重升序；价格设置“添加模型”的候选）。 */
   listModels(): Promise<string[]>
@@ -245,17 +243,14 @@ export class SqlitePetStore implements PetStore {
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec(`CREATE TABLE IF NOT EXISTS task_sessions (${TASK_COLUMNS})`)
     // 注：早期版本加过 finalContextTokens 列，现已弃用；旧库残留该列不影响读写。
-    this.db.exec(`CREATE TABLE IF NOT EXISTS tool_calls (
-      id TEXT PRIMARY KEY, taskKey TEXT NOT NULL, callId TEXT NOT NULL,
-      name TEXT NOT NULL DEFAULT '', startTime INTEGER NOT NULL, endTime INTEGER,
-      status TEXT NOT NULL)`)
+    // tool_calls 明细表已退役（无消费方，仅导出 CSV 一条死路）：老库直接删表回收空间。
+    this.db.exec('DROP TABLE IF EXISTS tool_calls')
     this.db.exec(`CREATE TABLE IF NOT EXISTS pet_settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
     this.db.exec(`CREATE TABLE IF NOT EXISTS balance_snapshots (
       ts INTEGER PRIMARY KEY, currency TEXT NOT NULL, normal REAL NOT NULL DEFAULT 0,
       bonus REAL NOT NULL DEFAULT 0, totalCosts REAL, source TEXT NOT NULL DEFAULT '')`)
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_start ON task_sessions(startTime)')
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_tools_task ON tool_calls(taskKey)')
   }
 
   async close(): Promise<void> {
@@ -325,27 +320,6 @@ export class SqlitePetStore implements PetStore {
       )
   }
 
-  async saveToolCalls(tools: readonly ToolCallRecord[]): Promise<void> {
-    if (tools.length === 0) return
-    const stmt = this.must().prepare(
-      `INSERT INTO tool_calls (id, taskKey, callId, name, startTime, endTime, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-        endTime = excluded.endTime, status = excluded.status, name = excluded.name`,
-    )
-    for (const tool of tools) {
-      stmt.run(
-        tool.id,
-        tool.taskKey,
-        tool.callId,
-        tool.name,
-        tool.startTime,
-        tool.endTime,
-        tool.status,
-      )
-    }
-  }
-
   async listTasks(limit: number, offset = 0): Promise<TaskSession[]> {
     const rows = this.must()
       .prepare(
@@ -386,13 +360,6 @@ export class SqlitePetStore implements PetStore {
       )
       .all(...args, Math.max(1, query.limit), query.offset ?? 0) as Record<string, unknown>[]
     return { tasks: rows.map(rowToTask), total: Number(totalRow.n) || 0 }
-  }
-
-  async listToolCalls(limit: number): Promise<ToolCallRecord[]> {
-    const rows = this.must()
-      .prepare(`SELECT * FROM tool_calls ORDER BY startTime DESC LIMIT ?`)
-      .all(Math.max(1, limit)) as Record<string, unknown>[]
-    return rows.map(rowToToolCall)
   }
 
   async countTasks(): Promise<number> {
@@ -512,14 +479,13 @@ export class SqlitePetStore implements PetStore {
 interface JsonData {
   schemaVersion: 1
   tasks: TaskSession[]
-  toolCalls: ToolCallRecord[]
   settings: Record<string, unknown> | null
   balances: BalanceSnapshot[]
 }
 
 export class JsonPetStore implements PetStore {
   readonly backend = 'json' as const
-  private data: JsonData = { schemaVersion: 1, tasks: [], toolCalls: [], settings: null, balances: [] }
+  private data: JsonData = { schemaVersion: 1, tasks: [], settings: null, balances: [] }
 
   constructor(private readonly jsonPath: string) {}
 
@@ -531,7 +497,6 @@ export class JsonPetStore implements PetStore {
       this.data = {
         schemaVersion: 1,
         tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
-        toolCalls: Array.isArray(parsed.toolCalls) ? parsed.toolCalls : [],
         settings: parsed.settings ?? null,
         balances: Array.isArray(parsed.balances) ? parsed.balances : [],
       }
@@ -565,19 +530,6 @@ export class JsonPetStore implements PetStore {
     await this.flush()
   }
 
-  async saveToolCalls(tools: readonly ToolCallRecord[]): Promise<void> {
-    if (tools.length === 0) return
-    for (const tool of tools) {
-      const index = this.data.toolCalls.findIndex((item) => item.id === tool.id)
-      if (index >= 0) this.data.toolCalls[index] = tool
-      else this.data.toolCalls.push(tool)
-    }
-    if (this.data.toolCalls.length > 20_000) {
-      this.data.toolCalls = this.data.toolCalls.slice(-20_000)
-    }
-    await this.flush()
-  }
-
   async listTasks(limit: number, offset = 0): Promise<TaskSession[]> {
     const sorted = [...this.data.tasks].sort((a, b) => b.startTime - a.startTime)
     return sorted.slice(offset, offset + Math.max(1, limit))
@@ -602,11 +554,6 @@ export class JsonPetStore implements PetStore {
     return this.data.tasks
       .filter((task) => task.startTime >= fromMs && task.startTime < toMs)
       .sort((a, b) => a.startTime - b.startTime)
-  }
-
-  async listToolCalls(limit: number): Promise<ToolCallRecord[]> {
-    const sorted = [...this.data.toolCalls].sort((a, b) => b.startTime - a.startTime)
-    return sorted.slice(0, Math.max(1, limit))
   }
 
   async countTasks(): Promise<number> {
@@ -732,18 +679,6 @@ function rowToBalance(row: Record<string, unknown>): BalanceSnapshot {
     bonus: Number(row.bonus ?? 0),
     totalCosts: row.totalCosts === null || row.totalCosts === undefined ? null : Number(row.totalCosts),
     source: (row.source ?? 'manual') as BalanceSnapshot['source'],
-  }
-}
-
-function rowToToolCall(row: Record<string, unknown>): ToolCallRecord {
-  return {
-    id: String(row.id),
-    taskKey: String(row.taskKey ?? ''),
-    callId: String(row.callId ?? ''),
-    name: String(row.name ?? ''),
-    startTime: Number(row.startTime ?? 0),
-    endTime: row.endTime === null || row.endTime === undefined ? null : Number(row.endTime),
-    status: (row.status ?? 'ok') as ToolCallRecord['status'],
   }
 }
 

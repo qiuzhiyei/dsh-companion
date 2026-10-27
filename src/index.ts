@@ -31,7 +31,7 @@ import { PetStateMachine } from './state-machine/pet-state-machine.js'
 import { TaskTracker, finishedViewFromSession } from './state-machine/task-tracker.js'
 import { BudgetGuard } from './state-machine/budget.js'
 import { computePeriodStats, computeRanking, computeSeries } from './storage/stats.js'
-import { exportSessions, exportToolCalls, type ExportFilter } from './storage/export.js'
+import { exportSessions, type ExportFilter } from './storage/export.js'
 import { openPetStore, clampBalanceMinutes } from './storage/store.js'
 import type { PetStore } from './storage/store.js'
 import { AccountBalanceSource } from './balance/source.js'
@@ -59,7 +59,6 @@ import type {
   PetSettings,
   PetSnapshot,
   TaskSession,
-  ToolCallRecord,
 } from './types.js'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -320,9 +319,9 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
     )
     const tracker = new TaskTracker({
       modelPrices: effectivePrices(),
-      onFinish: async (task, tools) => {
+      onFinish: async (task) => {
         if (currentSettings.paused) return
-        await persistTask(task, tools)
+        await persistTask(task)
         const today = await computePeriodStats(store, 'today')
         const dailyAlert = guard.checkDaily({
           totalTokens: today.totalTokens,
@@ -351,7 +350,7 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       log.warn('回填模型名失败:', (error as Error).message)
     }
 
-    async function persistTask(task: TaskSession, tools: ToolCallRecord[]): Promise<void> {
+    async function persistTask(task: TaskSession): Promise<void> {
       // DSH 的 request/header 只在请求配置变化时才发——整轮零 header 的任务
       // 模型名为空（会话日志实证），落库前继承同会话最近一次已知路由。
       if (!task.model) {
@@ -366,7 +365,6 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
         }
       }
       await store.saveTask(task)
-      await store.saveToolCalls(tools)
       // 任务结束后补一次余额采样：单任务余额差可作费用估算的旁证（异步、失败不拦）。
       if (currentSettings.balance.enabled) void sampleBalance('task')
       ctx.emit(EVENTS.taskFinished, { task })
@@ -484,7 +482,6 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       },
       exportSessions: (format: ExportFormat, filter?: ExportFilter) =>
         exportSessions(store, format, 5_000, filter),
-      exportTools: (format: ExportFormat) => exportToolCalls(store, format),
       deleteDshSession: (sessionId) => sessionDeleter.delete(sessionId),
       listDshSessions: () => sessionDeleter.listSessions(),
       deleteDshSessions: (sessionIds) => sessionDeleter.deleteMany(sessionIds),
@@ -511,16 +508,7 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       // autoStart=false（设置里关掉“随 DSH 启动伴侣”）→ 下次 DSH 启动不拉壳。
       shell: config.server.shell === 'auto' && currentSettings.autoStart ? 'auto' : 'off',
     })
-    await tray.start({
-      showHide: () => pushSnapshot(),
-      togglePause: () => pushSnapshot(),
-      history: () => pushSnapshot(),
-      stats: () => pushSnapshot(),
-      settings: () => pushSnapshot(),
-      switchSkin: () => pushSnapshot(),
-      exportData: () => void exportSessions(store, 'csv'),
-      quit: () => void ctx.fiber.dispose(),
-    })
+    await tray.start()
 
     // ---- ⑤ 适配层（真实 / mock）----
     const adapter: PetAdapter =

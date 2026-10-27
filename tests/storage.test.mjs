@@ -53,25 +53,15 @@ for (const Backend of [SqlitePetStore, JsonPetStore]) {
       await store.init()
       const task = makeTask()
       await store.saveTask(task)
-      await store.saveToolCalls([
-        {
-          id: 'session-1:1:c1',
-          taskKey: 'session-1:1',
-          callId: 'c1',
-          name: 'read',
-          startTime: 1,
-          endTime: 2,
-          status: 'ok',
-        },
-      ])
       const tasks = await store.listTasks(10)
       assert.equal(tasks.length, 1)
       assert.equal(tasks[0].id, 'session-1:1')
       assert.equal(tasks[0].promptTokens, 1200)
       assert.equal(tasks[0].status, 'success')
-      const tools = await store.listToolCalls(10)
-      assert.equal(tools.length, 1)
-      assert.equal(tools[0].name, 'read')
+      // 工具调用只剩任务级计数（明细表已退役）：三个计数字段照常读写。
+      assert.equal(tasks[0].toolCalls, 3)
+      assert.equal(tasks[0].toolSuccess, 2)
+      assert.equal(tasks[0].toolFail, 1)
 
       await store.saveSettings({
         skin: 'whale',
