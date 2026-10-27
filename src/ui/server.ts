@@ -238,7 +238,8 @@ export class PetServer {
       const model = (url.searchParams.get('model') ?? '').trim()
       const statusRaw = (url.searchParams.get('status') ?? '').trim()
       const status: TaskQuery['status'] | undefined =
-        statusRaw === 'success' || statusRaw === 'failed' || statusRaw === 'interrupted'
+        statusRaw === 'success' || statusRaw === 'failed' || statusRaw === 'interrupted' ||
+        statusRaw === 'blocked' || statusRaw === 'max-tokens'
           ? statusRaw
           : undefined
       const fromMs = clampInt(url.searchParams.get('from'), 0, 8_640_000_000_000_000, 0)
@@ -366,7 +367,8 @@ export class PetServer {
       // 导出吃历史页的筛选：model/status/from/to/q 与 /api/history 同口径。
       const statusRaw = (url.searchParams.get('status') ?? '').trim()
       const status: ExportFilter['status'] =
-        statusRaw === 'success' || statusRaw === 'failed' || statusRaw === 'interrupted'
+        statusRaw === 'success' || statusRaw === 'failed' || statusRaw === 'interrupted' ||
+        statusRaw === 'blocked' || statusRaw === 'max-tokens'
           ? statusRaw
           : undefined
       const filter: ExportFilter = {

@@ -234,6 +234,28 @@ test('插件完整生命周期：加载 → 服务 → 模拟任务 → 统计 �
   })).json()
   assert.equal(rrClamp.restReminder.intervalMinutes, 480, '间隔超上限应夹到 480')
 
+  // 余额台账设置：lowBalance 阈值回读（正数保留 / 0 与非法值归 null = 关）。
+  const balDef = (await (await fetch(`${baseUrl}/api/state`)).json()).settings.balance
+  assert.equal(balDef.lowBalance, null, '余额低告警默认关')
+  const balRes = await (await fetch(`${baseUrl}/api/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ balance: { enabled: false, intervalMinutes: 30, lowBalance: 5 } }),
+  })).json()
+  assert.equal(balRes.balance.lowBalance, 5)
+  const balOff = await (await fetch(`${baseUrl}/api/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ balance: { enabled: false, intervalMinutes: 30, lowBalance: 0 } }),
+  })).json()
+  assert.equal(balOff.balance.lowBalance, null, '0 = 关闭告警')
+  const balNeg = await (await fetch(`${baseUrl}/api/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ balance: { enabled: false, intervalMinutes: 30, lowBalance: -3 } }),
+  })).json()
+  assert.equal(balNeg.balance.lowBalance, null, '负数 = 关闭告警')
+
   // 外观设置写入回读（透明度 / 缩放 / 皮肤即时生效链路）。
   const lookRes = await fetch(`${baseUrl}/api/settings`, {
     method: 'PUT',

@@ -75,11 +75,18 @@ for (const Backend of [SqlitePetStore, JsonPetStore]) {
         currency: 'CNY',
         modelPrices: { 'deepseek-chat': { inputPerMillion: 2, outputPerMillion: 8 } },
         budget: { taskMaxTokens: 1000, taskMaxCost: null, dailyMaxTokens: null, dailyMaxCost: null },
+        balance: { enabled: true, intervalMinutes: 15, lowBalance: 8.5 },
       })
       const settings = await store.loadSettings()
       assert.equal(settings.privacyMode, true)
       assert.deepEqual(settings.position, { x: 10, y: 20 })
       assert.equal(settings.budget.taskMaxTokens, 1000)
+      // 余额低告警阈值：正数如实回读；非法值（0/负数/垃圾）归 null = 关。
+      assert.equal(settings.balance.lowBalance, 8.5)
+      await store.saveSettings({ ...settings, balance: { enabled: true, intervalMinutes: 15, lowBalance: 0 } })
+      assert.equal((await store.loadSettings()).balance.lowBalance, null, 'lowBalance=0 应视为关闭')
+      await store.saveSettings({ ...settings, balance: { enabled: true, intervalMinutes: 15, lowBalance: 'abc' } })
+      assert.equal((await store.loadSettings()).balance.lowBalance, null, '非法 lowBalance 应视为关闭')
       await store.close()
     } finally {
       await rm(dir, { recursive: true, force: true })

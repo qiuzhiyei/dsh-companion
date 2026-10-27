@@ -199,6 +199,11 @@ test('Electron 壳：拖拽跟手 IPC 面完整', async () => {
   assert.ok(page.includes('notifyFinished') && page.includes('notifyAlert'), '完成/预算两类通知')
   assert.ok(page.includes('dur < 60000'), '短任务不弹系统通知（避免刷屏）')
   assert.ok(page.includes('msg.alert.time !== prevAlertTime'), '预算告警只在新增时通知')
+  // 余额低告警：通知标题区分 + 举牌警示态（低于阈值金额转红、副标题提示充值）
+  assert.ok(page.includes('余额不足'), '告警通知标题应区分余额不足与预算告警')
+  assert.ok(page.includes("setState('warn'"), '举牌应有余额不足警示态')
+  assert.ok(page.includes('#placard[data-state="warn"]'), '警示态应有样式（金额转红）')
+  assert.ok(page.includes('balance.lowBalance'), '举牌判警应读设置阈值')
 })
 
 test('命中区域 = 宠物本体：周边透明区不再可拖/可点（智能穿透）', async () => {

@@ -157,6 +157,12 @@ export interface PetSettings {
     enabled: boolean
     /** 采样间隔（分钟），夹在 5..1440。 */
     intervalMinutes: number
+    /**
+     * 余额低告警阈值（余额币种计价；null/≤0 = 关）。采样到
+     * normal+bonus 低于阈值时告警一次（Toast + 气泡 + 面板横幅）；
+     * 回升到阈值以上重新武装，再跌破会再报。
+     */
+    lowBalance: number | null
   }
 }
 
@@ -224,6 +230,7 @@ export const DEFAULT_SETTINGS: PetSettings = {
   balance: {
     enabled: false,
     intervalMinutes: 30,
+    lowBalance: null,
   },
 }
 
@@ -266,13 +273,14 @@ export interface FinishedTaskView {
   toolFail: number
 }
 
-/** 预算告警。 */
+/** 预算告警。kind='balance-low' 为余额低告警（复用同一呈现通道）。 */
 export interface BudgetAlert {
   kind:
     | 'task-tokens'
     | 'task-cost'
     | 'daily-tokens'
     | 'daily-cost'
+    | 'balance-low'
   taskKey: string | null
   limit: number
   actual: number

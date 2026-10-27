@@ -102,6 +102,7 @@ export const DEFAULT_SETTINGS = {
     balance: {
         enabled: false,
         intervalMinutes: 30,
+        lowBalance: null,
     },
 };
 /** 事件通道名常量（避免裸字符串）。 */

@@ -152,6 +152,8 @@ export function apply(ctx, config = Config({})) {
         const BALANCE_RETENTION_MS = 90 * 24 * 3600 * 1000;
         let balanceTimer = null;
         let balanceStartupTimer = null;
+        /** 余额低告警武装标记：跌破报一次，回升到阈值以上重新武装。 */
+        let lowBalanceArmed = true;
         async function sampleBalance(source, force = false) {
             if (!currentSettings.balance.enabled) {
                 const last = await store.latestBalanceSnapshot().catch(() => null);
@@ -184,6 +186,7 @@ export function apply(ctx, config = Config({})) {
                 catch (error) {
                     log.warn('余额快照落库失败:', error.message);
                 }
+                void checkLowBalance(reading);
             }
             return {
                 ok: reading.ok,
@@ -205,6 +208,41 @@ export function apply(ctx, config = Config({})) {
                 store.latestBalanceSnapshot(from).catch(() => null),
             ]);
             return summarizeBalance({ period, snapshots: points, baseline });
+        }
+        /**
+         * 余额低告警：总可用（normal+bonus，与台账消耗口径一致）跌破阈值报一次；
+         * 回升到阈值以上重新武装，再跌破会再报。告警走 BudgetAlert 同一呈现通道
+         * （Toast + 桌宠气泡 + 面板横幅 + companion/budget-alert 事件）。
+         */
+        async function checkLowBalance(reading) {
+            const threshold = currentSettings.balance.lowBalance;
+            if (threshold === null || !(threshold > 0))
+                return;
+            const total = reading.normal + reading.bonus;
+            if (total > threshold) {
+                lowBalanceArmed = true;
+                return;
+            }
+            if (!lowBalanceArmed)
+                return;
+            lowBalanceArmed = false;
+            // void 调用：告警失败（含启动竞态——tray 在 effect 后段才创建，而启动
+            // 采样 5s 就可能触发）不得产生 unhandled rejection 崩掉宿主。
+            void (async () => {
+                try {
+                    await raiseAlert({
+                        kind: 'balance-low',
+                        taskKey: null,
+                        limit: threshold,
+                        actual: total,
+                        message: `DeepSeek 余额不足：${total.toFixed(2)} ${reading.currency}（阈值 ${threshold} ${reading.currency}），请及时充值`,
+                        time: Date.now(),
+                    });
+                }
+                catch (error) {
+                    log.warn('余额低告警发送失败:', error.message);
+                }
+            })();
         }
         function scheduleBalanceSampling() {
             if (balanceTimer !== null) {
@@ -562,10 +600,19 @@ export function apply(ctx, config = Config({})) {
             }
             if (patch.balance && typeof patch.balance === 'object') {
                 const balance = patch.balance;
+                const threshold = Number(balance.lowBalance);
                 next.balance = {
                     enabled: typeof balance.enabled === 'boolean' ? balance.enabled : next.balance.enabled,
                     intervalMinutes: clampBalanceMinutes(balance.intervalMinutes === undefined ? next.balance.intervalMinutes : balance.intervalMinutes),
+                    // 0/负数/非法值 = 关；正数 = 阈值。
+                    lowBalance: balance.lowBalance === undefined
+                        ? next.balance.lowBalance
+                        : Number.isFinite(threshold) && threshold > 0
+                            ? threshold
+                            : null,
                 };
+                // 阈值或开关变了 → 重新武装（新阈值立即生效，不用等余额回升）。
+                lowBalanceArmed = true;
             }
             if (patch.modelPrices && typeof patch.modelPrices === 'object') {
                 const parsed = parsePriceTable(patch.modelPrices);

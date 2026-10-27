@@ -83,6 +83,8 @@ export function petPageHTML() {
   #placard .p-sub { font-size: 10.5px; color: rgba(198, 216, 234, .52); margin-top: 1px; }
   /* 查询中/未登录/未开启：金额改中性色，别用金光误导 */
   #placard[data-state="muted"] .p-amt { color: #c9d8e7; text-shadow: none; font-size: 19px; font-weight: 600; }
+  /* 余额低于告警阈值：金额转警示红 */
+  #placard[data-state="warn"] .p-amt { color: #ff9c85; text-shadow: 0 1px 10px rgba(255, 122, 92, .22); }
   .hidden { display: none !important; }
   /* 减少动态效果：尊重系统设置，别让桌宠在「减少动画」模式下继续抖 */
   @media (prefers-reduced-motion: reduce) {
@@ -301,7 +303,7 @@ function notifyFinished(r) {
 }
 function notifyAlert(a) {
   if (!canNotify() || !a) return
-  window.petShell.notify('⚠ 预算告警', a.message || '')
+  window.petShell.notify(a.kind === 'balance-low' ? '⚠ 余额不足' : '⚠ 预算告警', a.message || '')
 }
 
 const es = new EventSource('/api/events')
@@ -606,6 +608,14 @@ function showBalance() {
     const bits = []
     if (Number(b.bonus) > 0) bits.push('赠金 ' + sym + Number(b.bonus).toFixed(2))
     bits.push(new Date(b.at || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
+    // 低于告警阈值 → 警示态 + 副标题提示充值（阈值口径与 node 侧一致：normal+bonus）。
+    const thr = snap && snap.settings && snap.settings.balance ? snap.settings.balance.lowBalance : null
+    const total = Number(b.normal || 0) + Number(b.bonus || 0)
+    if (thr > 0 && total <= thr) {
+      bits.push('低于阈值 ' + sym + Number(thr).toFixed(2) + '，记得充值')
+      setState('warn', sym + Number(b.normal || 0).toFixed(2), bits.join(' · '))
+      return
+    }
     setState('ok', sym + Number(b.normal || 0).toFixed(2), bits.join(' · '))
   }).catch(() => {
     setState('muted', '—', '伴侣服务未连接')
@@ -1330,6 +1340,8 @@ export function panelPageHTML() {
             <option value="success">完成</option>
             <option value="failed">失败</option>
             <option value="interrupted">中断</option>
+            <option value="blocked">待输入</option>
+            <option value="max-tokens">触顶</option>
           </select>
         </label>
         <label>起始日期<input type="date" id="histFrom"></label>
@@ -1340,7 +1352,7 @@ export function panelPageHTML() {
     <table>
       <thead><tr>
         <th>开始时间</th><th>项目</th><th>模型</th><th>状态</th><th class="num">时长</th>
-        <th class="num">输入</th><th class="num">输出</th><th class="num">总Token</th>
+        <th class="num">输入</th><th class="num">输出</th><th class="num">总Token</th><th class="num">费用</th>
       </tr></thead>
       <tbody id="historyBody"></tbody>
     </table>
@@ -1530,7 +1542,7 @@ export function panelPageHTML() {
           <div class="set-card tone-cyan" id="card-balance">
             <div class="set-head">
               <span class="set-ico">🐳</span>
-              <div><h2>余额台账<button class="info" type="button" data-tip="只记录登录的 DeepSeek 账号余额（第三方渠道一律不查）。开启后按间隔采样，消耗 = 相邻快照的下降量，充值单列；双击桌宠可随时举牌查看。数据只存本地。">i</button></h2><p>记录余额变化，双击桌宠可查看</p></div>
+              <div><h2>余额台账<button class="info" type="button" data-tip="只记录登录的 DeepSeek 账号余额（第三方渠道一律不查）。开启后按间隔采样，消耗 = 相邻快照的下降量，充值单列；双击桌宠可随时举牌查看。设了「余额低告警」阈值后，余额（含赠金）跌破时弹系统通知与桌宠气泡，充值回升后重新武装。数据只存本地。">i</button></h2><p>记录余额变化，双击桌宠可查看</p></div>
             </div>
             <div class="toggle-grid">
               <label class="set-item"><div class="item-text"><span>记录余额</span><small>仅登录账号；不联网上报，只存本地</small></div><input type="checkbox" id="setBalanceEnabled" class="switch-input"><span class="switch-track"></span></label>
@@ -1538,6 +1550,10 @@ export function panelPageHTML() {
             <div class="set-item">
               <div class="item-text"><span>采样间隔</span><small>低频即可；双击查看与任务结束会额外补采</small></div>
               <span class="unit"><select class="num-input" id="setBalanceInterval"><option value="15">15</option><option value="30">30</option><option value="60">60</option><option value="120">120</option></select><i>分钟</i></span>
+            </div>
+            <div class="set-item">
+              <div class="item-text"><span>余额低告警</span><small>余额（含赠金）跌破阈值时通知；0 = 关闭</small></div>
+              <span class="unit"><input type="number" class="num-input" id="setBalanceLow" min="0" step="1" placeholder="0"><i>元</i></span>
             </div>
           </div>
           <div class="set-card tone-teal" id="card-currency">
@@ -1626,7 +1642,7 @@ function skRows(widths, n) {
   }
   return html
 }
-function paintHistorySkeleton() { $('historyBody').innerHTML = skRows([16, 26, 20, 12, 14, 11, 11, 13], 6) }
+function paintHistorySkeleton() { $('historyBody').innerHTML = skRows([15, 24, 18, 11, 13, 10, 10, 12, 12], 6) }
 function paintSessionsSkeleton() { $('smBody').innerHTML = skRows([6, 40, 22, 12, 10, 10, 16], 5) }
 function paintStatsSkeleton() {
   const tones = ['tone-blue', 'tone-cyan', 'tone-green', 'tone-violet', 'tone-gold', 'tone-teal']
@@ -1662,6 +1678,11 @@ function fmtTokens(n) {
 function fmtTime(t) { return new Date(t).toLocaleString('zh-CN', { hour12: false }) }
 function cur() { return snap ? (snap.currency === 'USD' ? '$' : '¥') : '¥' }
 function mask(s) { return snap && snap.settings.privacyMode ? '***' : (s || '') }
+// 单任务费用：小额（<1）留 4 位、大额留 2 位；0（第三方渠道不计费）显示「—」不误导。
+function fmtCost(c) {
+  if (!c || c <= 0) return '<span class="muted">—</span>'
+  return cur() + (c < 1 ? c.toFixed(4) : c.toFixed(2))
+}
 
 // ---- tabs ----
 // 页签来回点不重复打网络：响应缓存 30s，任何写操作/SSE 消息都会清空。
@@ -1732,10 +1753,19 @@ function renderLive() {
 }
 
 function statusText(status) {
-  return status === 'success' ? '完成' : status === 'interrupted' ? '中断' : '失败'
+  return status === 'success' ? '完成'
+    : status === 'failed' ? '失败'
+    : status === 'interrupted' ? '中断'
+    : status === 'blocked' ? '待输入'
+    : status === 'max-tokens' ? '触顶'
+    : status === 'running' ? '运行中'
+    : '失败'
 }
 function tagClass(status) {
-  return status === 'success' ? 'success' : status === 'interrupted' ? 'arch' : 'failed'
+  return status === 'success' ? 'success'
+    : status === 'failed' ? 'failed'
+    : (status === 'blocked' || status === 'max-tokens') ? 'pin'
+    : 'arch'
 }
 
 // ---- history：筛选（模型 / 状态 / 日期 / 项目关键词）+ 分页 ----
@@ -1785,10 +1815,10 @@ async function loadHistory(force) {
       return '<tr><td>' + fmtTime(t.startTime) + '</td><td>' + esc(mask(t.project)) + '</td><td>' + esc(mask(t.model)) +
         '</td><td><span class="tag ' + tagClass(t.status) + '">' + statusText(t.status) + '</span></td><td class="num">' + dur +
         '</td><td class="num">' + fmtTokens(t.promptTokens) + '</td><td class="num">' + fmtTokens(t.completionTokens) +
-        '</td><td class="num">' + fmtTokens(t.totalTokens) + '</td></tr>'
+        '</td><td class="num">' + fmtTokens(t.totalTokens) + '</td><td class="num">' + fmtCost(t.cost) + '</td></tr>'
     })
     $('historyBody').innerHTML = rows.join('') ||
-      '<tr><td colspan="8" class="empty-cell">' + emptyHTML('没有匹配的任务', '换个筛选条件，或先跑一个任务') + '</td></tr>'
+      '<tr><td colspan="9" class="empty-cell">' + emptyHTML('没有匹配的任务', '换个筛选条件，或先跑一个任务') + '</td></tr>'
     $('histPage').textContent = '第 ' + (histPage + 1) + ' / ' + pages + ' 页'
     $('histCount').textContent = '共 ' + histTotal + ' 条'
     $('histFirst').disabled = histPage === 0
@@ -1796,7 +1826,7 @@ async function loadHistory(force) {
     $('histNext').disabled = histPage >= pages - 1
     $('histLast').disabled = histPage >= pages - 1
   } catch (err) {
-    $('historyBody').innerHTML = '<tr><td colspan="8" class="empty-cell">' + emptyHTML('加载失败', '伴侣服务没起来？重启 DSH 再试') + '</td></tr>'
+    $('historyBody').innerHTML = '<tr><td colspan="9" class="empty-cell">' + emptyHTML('加载失败', '伴侣服务没起来？重启 DSH 再试') + '</td></tr>'
   } finally {
     skCancel('history')
     histLoaded = true
@@ -2311,6 +2341,7 @@ async function loadSettings() {
     balSel.appendChild(opt)
   }
   balSel.value = balMin
+  $('setBalanceLow').value = bal.lowBalance > 0 ? String(bal.lowBalance) : ''
   document.querySelectorAll('#currencySeg button').forEach((b) => b.classList.toggle('active', b.dataset.cur === s.currency))
   const budget = s.budget || {}
   $('setTaskTokens').value = budget.taskMaxTokens || 0
@@ -2383,11 +2414,20 @@ $('setClickThrough').onchange = (e) => put({ clickThrough: e.target.checked })
 $('setPrivacy').onchange = (e) => put({ privacyMode: e.target.checked })
 $('setAutoStart').onchange = (e) => put({ autoStart: e.target.checked })
 $('setNotify').onchange = (e) => put({ notify: e.target.checked })
-// 余额台账：开关与采样间隔一起提交（后端只认 balance.{enabled,intervalMinutes}）。
-$('setBalanceEnabled').onchange = (e) =>
-  put({ balance: { enabled: e.target.checked, intervalMinutes: Number($('setBalanceInterval').value) || 30 } })
-$('setBalanceInterval').onchange = (e) =>
-  put({ balance: { enabled: $('setBalanceEnabled').checked, intervalMinutes: Number(e.target.value) || 30 } })
+// 余额台账：三个设置项一起提交（后端 updateSettings 整体替换 balance 对象）。
+function putBalance() {
+  const low = Number($('setBalanceLow').value) || 0
+  put({
+    balance: {
+      enabled: $('setBalanceEnabled').checked,
+      intervalMinutes: Number($('setBalanceInterval').value) || 30,
+      lowBalance: low > 0 ? low : null,
+    },
+  })
+}
+$('setBalanceEnabled').onchange = putBalance
+$('setBalanceInterval').onchange = putBalance
+$('setBalanceLow').onchange = putBalance
 $('setRestEnabled').onchange = (e) => {
   const cur = (snap && snap.settings && snap.settings.restReminder) || { intervalMinutes: 60 }
   put({ restReminder: { enabled: e.target.checked, intervalMinutes: Number(cur.intervalMinutes) || 60 } })

@@ -111,6 +111,15 @@ test('面板页：设置分组 + ⓘ 说明 + 统计指标切换', () => {
   assert.ok(html.includes('id="liveStale"'), 'SSE 断线徽标')
   assert.ok(html.includes('es.onerror'), 'SSE 断开应可感知')
   assert.ok(html.includes('id="setNotify"'), '系统通知开关')
+  // 余额低告警设置项 + 历史费用列/全状态筛选（面板页职责；举牌与通知标题在悬浮页，见 pet-page.test）
+  assert.ok(html.includes('id="setBalanceLow"'), '余额低告警阈值输入框')
+  assert.ok(html.includes('putBalance'), '余额设置应整体提交（enabled/interval/lowBalance 三件套）')
+  assert.ok(html.includes('<th class="num">费用</th>'), '历史表应有费用列')
+  assert.ok(html.includes('function fmtCost'), '费用列应有格式化函数')
+  assert.ok(html.includes('colspan="9"'), '历史表空态/错误态 colspan 应为 9')
+  for (const st of ['blocked', 'max-tokens']) {
+    assert.ok(html.includes('<option value="' + st + '">'), '状态筛选应含 ' + st)
+  }
   assert.ok(html.includes('function dropCache') && html.includes('RESP_CACHE_MS'), '页签响应缓存 + 失效')
   assert.ok(html.includes('id="histRefresh"') && html.includes('id="statsRefresh"'), '手动刷新入口')
 })

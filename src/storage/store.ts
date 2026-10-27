@@ -198,6 +198,11 @@ function mergeSettings(value: unknown): PetSettings {
     balance: {
       enabled: raw.balance?.enabled === true,
       intervalMinutes: clampBalanceMinutes(raw.balance?.intervalMinutes),
+      // 余额低告警阈值：只认有限正数，其余（null/0/负数/垃圾值）一律视为关。
+      lowBalance:
+        Number.isFinite(Number(raw.balance?.lowBalance)) && Number(raw.balance?.lowBalance) > 0
+          ? Number(raw.balance?.lowBalance)
+          : null,
     },
   }
 }

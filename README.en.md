@@ -22,6 +22,7 @@ Desktop pet · usage & cost stats · budget alerts · UI enhancements
 - 📊 **Stats panel** — tokens, tasks, success rate, duration, cost, cache hits, all with period deltas
 - 💰 **Cost estimation** — official DeepSeek pricing, peak/off-peak halves, cache hits priced separately
 - 🚨 **Budget alerts** — per-task and daily caps on tokens or cost, with a bubble and a system notification
+- 🐳 **Balance ledger** — samples your DeepSeek account balance, tracks daily/monthly spend, alerts when it runs low
 - 🗂 **History & export** — filter by model / status / date / keyword, export CSV or JSON
 - 🧹 **Session management** — hard-delete sessions (the host only archives)
 - ⏰ **Sitting reminder** — nudge to stand up every N minutes
