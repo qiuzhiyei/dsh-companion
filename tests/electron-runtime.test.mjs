@@ -99,3 +99,17 @@ test('托盘控制器把 dataDir 传给了运行时解析（源码契约）', as
     '旧的“缺了就放弃”提示已被自动下载取代',
   )
 })
+
+test('下载必须有整体超时（源码契约：防 inFlight 永久挂死）', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const runtime = await readFile(
+    new URL('../dist/ui/electron-runtime.js', import.meta.url),
+    'utf8',
+  )
+  // 真实隐患：fetch 不带 signal 时只靠 undici 间隔超时，慢速滴数据能把
+  // 这次进程周期的运行时获取永久挂死。整体墙钟超时 + signal 传入 fetch 是硬要求。
+  assert.ok(runtime.includes('DOWNLOAD_TIMEOUT_MS'), '缺整体超时常量')
+  assert.ok(runtime.includes('AbortController'), '缺 AbortController')
+  assert.ok(/fetch\(url, \{[^}]*signal/.test(runtime), 'fetch 必须带 signal（中断请求与 body 流）')
+  assert.ok(runtime.includes('下载超时'), '超时应转成人话进日志')
+})

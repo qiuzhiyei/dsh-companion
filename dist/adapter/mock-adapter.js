@@ -43,14 +43,14 @@ const PLANS = {
     },
 };
 let mockSessionCounter = 0;
-/**
- * 模拟适配器：按时序生成 PetEvent 序列。同一时刻只跑一个模拟任务。
- */
 /** 自动循环的场景池（偏 success，便于演示收竿为主）。 */
 function pickAutoScenario() {
     const pool = ['success', 'success', 'success', 'long', 'error', 'interrupted'];
     return pool[Math.floor(Math.random() * pool.length)];
 }
+/**
+ * 模拟适配器：按时序生成 PetEvent 序列。同一时刻只跑一个模拟任务。
+ */
 export class MockDshAdapter {
     kind = 'mock';
     bus = new PetEventBus();

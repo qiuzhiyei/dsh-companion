@@ -69,16 +69,17 @@ const PLANS: Record<MockScenario, MockTaskPlan> = {
 
 let mockSessionCounter = 0
 
-/**
- * 模拟适配器：按时序生成 PetEvent 序列。同一时刻只跑一个模拟任务。
- */
 /** 自动循环的场景池（偏 success，便于演示收竿为主）。 */
 function pickAutoScenario(): MockScenario {
   const pool: MockScenario[] = ['success', 'success', 'success', 'long', 'error', 'interrupted']
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-export class MockDshAdapter {  readonly kind = 'mock' as const
+/**
+ * 模拟适配器：按时序生成 PetEvent 序列。同一时刻只跑一个模拟任务。
+ */
+export class MockDshAdapter {
+  readonly kind = 'mock' as const
   private readonly bus = new PetEventBus()
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
   private readonly options: Required<MockAdapterOptions>

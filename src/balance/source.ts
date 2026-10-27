@@ -136,11 +136,6 @@ export class AccountBalanceSource {
     this.logger = options.logger
   }
 
-  /** 缓存命中的最近一次读数（不给服务用时避免被误当实时值）。 */
-  peek(): BalanceReading | null {
-    return this.last ? { ...this.last.reading, cached: true } : null
-  }
-
   async read(force = false): Promise<BalanceReading> {
     const now = this.now()
     if (!force && this.last && now - this.last.at < this.cacheMs) {

@@ -25,7 +25,7 @@ icon.svg                插件图标（原创 SVG，≤256KiB，经 exports['./i
 README.md / README.en.md  中文主说明 / 英文版（GitHub 门面，截图在 docs/images/）
 LICENSE                 MIT
 docs/                   pitfalls.md（公共坑与 FAQ）、whale-skin-brief.md（皮肤出图交接书）、images/（截图）
-tests/                  node --test，105 项
+tests/                  node --test，106 项
 dist/                   编译产物（**纳入版本库**：git 安装直接用，无需构建；发布前 pnpm run build 后提交）
 .github/workflows/ci.yml CI：node 22.19 + 24 矩阵 → install → build → dist 同步校验 → node --test
 ```
@@ -47,7 +47,7 @@ dist/                   编译产物（**纳入版本库**：git 安装直接用
 
 ```powershell
 pnpm run build        # 双 tsc
-pnpm test             # node --test，105 项应全绿
+pnpm test             # node --test，106 项应全绿
 # 挂测试（防卡死）：
 $job = Start-Job -ScriptBlock { Set-Location <项目根>; pnpm test 2>&1 | Out-String }
 Wait-Job $job -Timeout 160
@@ -77,6 +77,7 @@ PowerShell 输出中文会 GBK 乱码——只是显示问题，不影响文件�
 - **Toast 限流是「滚动 1 小时窗口 8 条」不是「每进程 8 条」**（tray.ts ToastLimiter）：旧口径用光额度后整个进程生命周期永久静音——DSH 开一整天，后半天的预算/余额告警全部弹不出来。别再改回进程级计数
 - **dsh-adapter 的会话侧缓存有上限**（sessions/lastRoute 各 200，插入序淘汰）：只在 dispose 清理 = 长期运行每开一个新会话永久多占一条（慢性泄漏）。淘汰无损：sessionInfoOf 下次事件从 session.header 现算重建，落库侧还有 store.lastKnownRoute 兜底。**request/header、request/context 在没有打开的 turn 时只进缓存不发事件**——旧实现发 turn=0 的幽灵 model-route（tracker 静默忽略，纯噪音）
 - **SkinRegistry 没有 invalidate()**（定义后从未被调用的死代码，已删）：皮肤缓存有意永不失效，改 manifest 需重启 DSH 生效
+- **Electron 运行时下载有整体墙钟超时**（electron-runtime.ts DOWNLOAD_TIMEOUT_MS = 5 分钟，AbortController signal 传入 fetch）：没有它，坏镜像/慢速滴数据能把 `inFlight` 永久挂死——这次 DSH 进程周期内伴侣再也不出现（undici 默认只管两次读之间的间隔超时，不管总时长）。好镜像实测 ~20s 下完 150 MB，5 分钟是 15× 余量；超时转「下载超时」人话进日志并 failover 下一镜像。AccountBalanceSource.peek() 同批删除（死代码）
 - 详情类数字都进 `/panel` 统计页，角标只留「今日 X token」一行
 - **模型价格三层解析**：自定义行（settings.modelPrices = 纯用户覆盖，不再持久化默认值）> 官方自动抓取（`src/pricing/official.ts` 拉 api-docs.deepseek.com 定价页，模型名从页面动态解析，PEAK 价、USD×`usdCnyRate` 折算，启动 3s 后首抓 + 每 24h 刷新 + 设置页手动同步；缓存在 dataDir/pricing-official.json，离线沿用旧价）> 内置兜底 DEFAULT_MODEL_PRICES。**别再想从 DSH 本地拿价**：dsh-token-meter 的 route-pricing 是 token 计数模块、usage-ledger.json 的 cost 恒为 0，DSH 不保存货币价格；免费渠道模型（aliyun-bailian 的 glm/qwen 等）无公开价源按 0 计，与 DSH 台账一致。**计费按 provider 门控（用户明确口径：只统计登录账号的任务，渠道的不用管）**：只有 provider ∈ {deepseek-account（账号登录）、deepseek-official（API key）} 的任务才计费——两者都直连 api.deepseek.com；自定义渠道（如 aliyun-bailian，本机 DSH 默认走它，见 profiles/desktop/cordis.patch.yml）无论模型名与官方多像一律不计费，Token 照记、费用恒 0（cost.ts isPricedProvider，tracker 与 BudgetGuard 双门控）。渠道别名映射（deepseek-v4.1-flash ↔ deepseek-flash）曾做过一版，后按用户要求移除
 - **缓存命中单独计价**：`ModelPrice.cacheInputPerMillion`（缺省退回 input 价）——DeepSeek 缓存命中价约为未命中的 1/50，不拆分对缓存重度任务会严重高估

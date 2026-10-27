@@ -27,6 +27,13 @@ export const ELECTRON_VERSION = '44.7.2';
 const FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 /** 低于这个体积的 zip 一定是错误页/半截文件。 */
 const MIN_ZIP_BYTES = 40 * 1024 * 1024;
+/**
+ * 单次下载的整体墙钟超时。好镜像实测 ~20s 下完 150 MB，5 分钟是 15× 余量，
+ * 足够覆盖慢网络；下不完说明该镜像实际不可用，超时后 failover 到下一个。
+ * 关键作用是给 inFlight 兜底：没有它，坏镜像/慢速滴数据能把「这次 DSH 进程
+ * 周期的运行时获取」永久挂死（undici 默认只管两次读之间的间隔超时）。
+ */
+const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 /** 运行时根目录：<dataDir>/runtime。 */
 export function runtimeRoot(dataDir) {
     return join(dataDir, 'runtime');
@@ -123,30 +130,46 @@ async function extractZip(zipPath, destDir) {
         });
     });
 }
-/** 下载一个 zip 到临时文件，返回实际字节数。 */
+/** 下载一个 zip 到临时文件，返回实际字节数。整体超时兜底（见 DOWNLOAD_TIMEOUT_MS）。 */
 async function downloadZip(url, zipPath, log) {
-    const response = await fetch(url, { redirect: 'follow' });
-    if (!response.ok || !response.body) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    const total = Number(response.headers.get('content-length') ?? 0);
-    let received = 0;
-    let lastLogged = 0;
-    const body = Readable.fromWeb(response.body);
-    body.on('data', (chunk) => {
-        received += chunk.length;
-        // 每过 ~10 MB 或每 10% 打一行，日志不刷屏又能看出活着。
-        const step = total > 0 ? total / 10 : 10 * 1024 * 1024;
-        if (received - lastLogged >= step) {
-            lastLogged = received;
-            const pct = total > 0 ? ` ${Math.round((received / total) * 100)}%` : '';
-            log.info(`正在下载 Electron 运行时：${(received / 1024 / 1024).toFixed(1)} MB` +
-                (total > 0 ? ` / ${(total / 1024 / 1024).toFixed(1)} MB` : '') +
-                pct);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+    timer.unref?.();
+    try {
+        // signal 同时中断初始请求与 body 流读取：慢速滴数据也会被整体超时切断。
+        const response = await fetch(url, { redirect: 'follow', signal: controller.signal });
+        if (!response.ok || !response.body) {
+            throw new Error(`HTTP ${response.status}`);
         }
-    });
-    await pipeline(body, createWriteStream(zipPath));
-    return received;
+        const total = Number(response.headers.get('content-length') ?? 0);
+        let received = 0;
+        let lastLogged = 0;
+        const body = Readable.fromWeb(response.body);
+        body.on('data', (chunk) => {
+            received += chunk.length;
+            // 每过 ~10 MB 或每 10% 打一行，日志不刷屏又能看出活着。
+            const step = total > 0 ? total / 10 : 10 * 1024 * 1024;
+            if (received - lastLogged >= step) {
+                lastLogged = received;
+                const pct = total > 0 ? ` ${Math.round((received / total) * 100)}%` : '';
+                log.info(`正在下载 Electron 运行时：${(received / 1024 / 1024).toFixed(1)} MB` +
+                    (total > 0 ? ` / ${(total / 1024 / 1024).toFixed(1)} MB` : '') +
+                    pct);
+            }
+        });
+        await pipeline(body, createWriteStream(zipPath));
+        return received;
+    }
+    catch (error) {
+        // 超时中止转成人话（原始 AbortError 信息进日志没法定位）。
+        if (controller.signal.aborted) {
+            throw new Error(`下载超时（超过 ${DOWNLOAD_TIMEOUT_MS / 1000} 秒）`);
+        }
+        throw error;
+    }
+    finally {
+        clearTimeout(timer);
+    }
 }
 let inFlight = null;
 /**

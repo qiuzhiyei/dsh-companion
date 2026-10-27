@@ -88,10 +88,6 @@ export class AccountBalanceSource {
         this.now = options.now ?? Date.now;
         this.logger = options.logger;
     }
-    /** 缓存命中的最近一次读数（不给服务用时避免被误当实时值）。 */
-    peek() {
-        return this.last ? { ...this.last.reading, cached: true } : null;
-    }
     async read(force = false) {
         const now = this.now();
         if (!force && this.last && now - this.last.at < this.cacheMs) {
