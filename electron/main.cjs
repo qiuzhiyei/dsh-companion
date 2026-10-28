@@ -44,6 +44,22 @@ process.on('unhandledRejection', (err) => {
   console.error('[dsh-companion] main 未处理的 Promise 拒绝:', err && err.stack ? err.stack : err)
 })
 
+// 窗口尺寸的合理区间。桌宠窗口尺寸由设置里的 scale 算出（看门狗：240*scale+40 ×
+// 200*scale+150），而 scale 在页面侧夹死 0.4..3 → 理论最大约 760×750。
+// 上限留足余量取 1200，超出即判定为畸形（DPI 切换/异常事件把窗口撑大的结果）。
+// 这些常量是 loadBounds / saveBounds / safeSetBounds / clampBounds 的**单一事实来源**。
+const DEFAULT_W = 300
+const DEFAULT_H = 340
+const MIN_W = 120
+const MIN_H = 120
+const MAX_W = 1200
+const MAX_H = 1200
+
+function isSaneSize(w, h) {
+  return Number.isFinite(w) && Number.isFinite(h) &&
+    w >= MIN_W && w <= MAX_W && h >= MIN_H && h <= MAX_H
+}
+
 /** setPosition 的安全包装：坐标必须是有限值，且失败不向外抛（补间/跟手循环里抛=连环弹窗）。 */
 function safeSetPosition(w, x, y) {
   const nx = Math.round(Number(x))
@@ -64,7 +80,9 @@ function safeSetBounds(w, b) {
   const width = Math.round(Number(b.width))
   const height = Math.round(Number(b.height))
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) return false
-  if (width < 20 || height < 20 || width > 8000 || height > 8000) return false
+  // 尺寸校验与 loadBounds/saveBounds/clampBounds 共用同一套常量（单一事实来源）。
+  // 旧口径上限 8000 太松——2857×4558 那种畸形尺寸能溜过去，桌宠就被顶出屏幕。
+  if (!isSaneSize(width, height)) return false
   try {
     w.setBounds({ x, y, width, height })
     return true
@@ -75,17 +93,32 @@ function safeSetBounds(w, b) {
 
 function loadBounds() {
   try {
-    return JSON.parse(fs.readFileSync(BOUNDS_FILE, 'utf8'))
+    const raw = JSON.parse(fs.readFileSync(BOUNDS_FILE, 'utf8'))
+    if (!raw || typeof raw !== 'object') return null
+    const { x, y, width, height } = raw
+    if (![x, y, width, height].every(Number.isFinite)) return null
+    // 尺寸畸形就整份丢弃、回落默认位置。
+    // 真实事故（多屏）：外接屏 DPI 与内屏不一致，窗口被撑到 2857×4558 并写进了
+    // 这个文件；桌宠在窗口内是**居中**的，于是被顶到屏幕下方 2000+px「失踪」，
+    // 而旧 clampBounds 只夹坐标不夹尺寸，连托盘「回到屏幕」也救不回来
+    // （窗口左上角可见 ≠ 居中的宠物可见）。单屏不会触发，所以只有多屏才复现。
+    if (!isSaneSize(width, height)) return null
+    return { x, y, width, height }
   } catch {
     return null
   }
 }
 
 function saveBounds() {
-  if (!win) return
+  if (!win || win.isDestroyed()) return
   try {
-    const bounds = win.getBounds()
-    fs.writeFileSync(BOUNDS_FILE, JSON.stringify(bounds, null, 2), 'utf8')
+    const b = win.getBounds()
+    // 畸形尺寸绝不落盘：写进去就等于把「失踪」状态复制到下次启动（自我繁殖的坑）。
+    if (!isSaneSize(b.width, b.height)) {
+      console.warn(`[dsh-companion] 窗口尺寸异常（${b.width}x${b.height}），拒绝写入位置记忆`)
+      return
+    }
+    fs.writeFileSync(BOUNDS_FILE, JSON.stringify(b, null, 2), 'utf8')
   } catch {
     // 位置记忆失败不致命。
   }
@@ -106,20 +139,46 @@ function defaultBounds() {
   return {
     x: area.x + area.width - 320,
     y: area.y + area.height - 360,
-    width: 300,
-    height: 340,
+    width: DEFAULT_W,
+    height: DEFAULT_H,
   }
 }
 
-// 把窗口夹回屏幕：至少保留 80x60 可见。用户曾把伴侣拖到屏幕外（y=-561），
-// 启动恢复记忆位置后直接“失踪”——所有恢复/显示/挪窗路径都必须过这道夹子。
+/**
+ * 把窗口夹回屏幕：**尺寸与坐标都夹**。
+ *
+ * 尺寸必须先夹——桌宠在窗口内居中，窗口一旦被撑大，宠物就被顶到屏幕外，
+ * 此时无论怎么夹坐标都救不回来（旧实现只保证「窗口左上角区域有 80×60 可见」，
+ * 对居中的宠物毫无意义）。坐标仍保留「至少 80×60 可见」的老口径。
+ * 用户曾把伴侣拖到屏幕外（y=-561）导致失踪，所以所有恢复/显示/挪窗路径都要过这道夹子。
+ */
 function clampBounds(bounds) {
-  const area = screen.getDisplayMatching(bounds).workArea
-  const minW = Math.min(80, bounds.width)
-  const minH = Math.min(60, bounds.height)
-  const x = Math.max(area.x + minW - bounds.width, Math.min(bounds.x, area.x + area.width - minW))
-  const y = Math.max(area.y + minH - bounds.height, Math.min(bounds.y, area.y + area.height - minH))
-  return { ...bounds, x: Math.round(x), y: Math.round(y) }
+  const sane = isSaneSize(bounds.width, bounds.height)
+  const area = screen.getDisplayMatching({
+    x: Number.isFinite(bounds.x) ? bounds.x : 0,
+    y: Number.isFinite(bounds.y) ? bounds.y : 0,
+    width: sane ? bounds.width : DEFAULT_W,
+    height: sane ? bounds.height : DEFAULT_H,
+  }).workArea
+  // 尺寸：夹进合理区间，且不大于所在屏工作区。
+  const width = Math.round(sane ? Math.max(MIN_W, Math.min(bounds.width, MAX_W, area.width)) : DEFAULT_W)
+  const height = Math.round(sane ? Math.max(MIN_H, Math.min(bounds.height, MAX_H, area.height)) : DEFAULT_H)
+  // 坐标：非法值回落到工作区右下角（默认位置），别把 NaN 传下去。
+  const bx = Number.isFinite(bounds.x) ? bounds.x : area.x + area.width - width - 20
+  const by = Number.isFinite(bounds.y) ? bounds.y : area.y + area.height - height - 20
+  const minW = Math.min(80, width)
+  const minH = Math.min(60, height)
+  const x = Math.max(area.x + minW - width, Math.min(bx, area.x + area.width - minW))
+  const y = Math.max(area.y + minH - height, Math.min(by, area.y + area.height - minH))
+  return { x: Math.round(x), y: Math.round(y), width, height }
+}
+
+/** 显示器变化（拔插外接屏 / 改分辨率 / 改 DPI）：记忆坐标可能已落在不存在的屏上。 */
+function onDisplaysChanged() {
+  if (!win || win.isDestroyed()) return
+  // 立刻夹回当前屏幕，别等用户发现宠物没了再去翻托盘救援。
+  safeSetBounds(win, clampBounds(win.getBounds()))
+  scheduleSaveBounds()
 }
 
 function createWindow() {
@@ -128,7 +187,12 @@ function createWindow() {
     ...bounds,
     transparent: true,
     frame: false,
-    resizable: true,
+    // 禁止用户拖拽调整窗口尺寸：桌宠尺寸只由设置里的 scale 决定（看门狗统一改），
+    // 手动拉伸过就再也算不回来，还会让居中的宠物偏离视觉中心。
+    // 最大化/全屏同样禁掉——那会把窗口撑到整屏，桌宠被居中到屏幕正中且尺寸畸形。
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
@@ -379,6 +443,12 @@ app.whenReady().then(() => {
     // 伴侣常驻：关掉最后一个窗口不退出（托盘仍可退出）。
     event.preventDefault()
   })
+  // 多屏关键修复：拔掉外接屏 / 改分辨率 / 改 DPI 缩放后，记忆里（或当前）的坐标
+  // 可能已经落在不存在的屏幕上了。旧实现完全不监听这些事件，于是桌宠留在已消失
+  // 的坐标上「失踪」，只能靠托盘救援。现在变化即刻夹回当前屏幕。
+  screen.on('display-removed', onDisplaysChanged)
+  screen.on('display-added', onDisplaysChanged)
+  screen.on('display-metrics-changed', onDisplaysChanged)
   startWatchdog()
 })
 
@@ -442,7 +512,8 @@ function startWatchdog() {
               const h = Math.round(200 * s.scale + 150)
               const b = win.getBounds()
               if (Math.abs(b.width - w) > 4 || Math.abs(b.height - h) > 4) {
-                safeSetBounds(win, { x: b.x, y: b.y, width: w, height: h })
+                // 过 clampBounds：新尺寸也要夹回屏幕（多屏下直接 setBounds 可能落在屏外）
+                safeSetBounds(win, clampBounds({ x: b.x, y: b.y, width: w, height: h }))
               }
             }
           }
