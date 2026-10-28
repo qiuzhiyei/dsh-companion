@@ -32,6 +32,10 @@ const TRAY_ICON = nativeImage.createFromDataURL(
 let win = null
 let tray = null
 let clickThrough = false
+// 最近一次从插件 /api/state 拿到的快照（看门狗每 5s 轮询写入）；托盘菜单读它
+// 判断「统计是否暂停」，不必为菜单单独发请求。
+let lastPetState = null
+function readPetState() { return lastPetState }
 
 // 主进程兜底：任何未捕获异常只记日志，绝不弹模态「A JavaScript error occurred
 // in the main process」——桌宠是常驻程序，一个补间里抛异常（用户实测：自由活动
@@ -217,6 +221,9 @@ function createWindow() {
   win.setIgnoreMouseEvents(true, { forward: true })
   win.on('moved', scheduleSaveBounds)
   win.on('resized', scheduleSaveBounds)
+  // 显隐变化（面板 showPet 开关 / 托盘菜单 / 快捷键都可能改）→ 刷新托盘勾选态。
+  win.on('show', scheduleTraySync)
+  win.on('hide', scheduleTraySync)
   // 拖拽跟手是主进程定时器：页面崩溃/窗口隐藏时必须停，别让宠物追着光标跑。
   win.webContents.on('render-process-gone', () => { stopDrag(); stopRoamMove() })
   win.on('hide', () => { stopDrag(); stopRoamMove() })
@@ -235,19 +242,65 @@ async function petPost(pathname) {
   }
 }
 
+// 托盘菜单：状态感知（用户吐槽「显示/隐藏」「暂停/恢复」二合一标签，
+// 点了不知道现在是什么状态、也不知道有没有按上）。
+// 现制：开关类用 checkbox 项（勾选 = 当前状态），标签直接写当前态；
+// 托盘悬停 tooltip 也带状态，不点开菜单就能看。
+let traySyncTimer = null
+function syncTrayMenu() {
+  if (!tray || tray.isDestroyed()) return
+  const s = readPetState()
+  const shown = !!(win && !win.isDestroyed() && win.isVisible())
+  const paused = s && s.settings && s.settings.paused === true
+  tray.setToolTip(`DSH 伴侣 · 伴侣${shown ? '显示中' : '已隐藏'} · 统计${paused ? '已暂停' : '运行中'}`)
+  if (menuShowPet) menuShowPet.checked = shown
+  if (menuPause) {
+    menuPause.checked = paused
+    menuPause.label = paused ? '恢复统计（当前已暂停）' : '暂停统计（当前运行中）'
+  }
+}
+// 状态变化后刷新菜单：合并 200ms 内的多次调用（SSE 快照可能连发）。
+function scheduleTraySync() {
+  if (traySyncTimer) clearTimeout(traySyncTimer)
+  traySyncTimer = setTimeout(() => { traySyncTimer = null; syncTrayMenu() }, 200)
+}
+
+let menuShowPet = null
+let menuPause = null
+
 function createTray() {
   tray = new Tray(TRAY_ICON)
   tray.setToolTip('DSH 伴侣')
   const menu = Menu.buildFromTemplate([
-    { label: '显示 / 隐藏伴侣', click: () => toggleWindow() },
+    {
+      label: '显示伴侣',
+      type: 'checkbox',
+      click: (item) => {
+        // checkbox 项点击后 Electron 会先翻转 checked，这里以用户意图为准强制对齐。
+        if (item.checked) { if (!win) createWindow(); else win.show() }
+        else if (win && !win.isDestroyed()) win.hide()
+        syncTrayMenu()
+      },
+    },
     { label: '伴侣回到屏幕', click: () => bringBackToScreen() },
-    { label: '暂停 / 恢复统计', click: () => petPost('/api/pause') },
+    {
+      label: '暂停统计',
+      type: 'checkbox',
+      click: (item) => {
+        // 先乐观对齐勾选（让用户立刻看到反馈），再发请求；失败时 sync 会纠正回来。
+        if (menuPause) menuPause.checked = item.checked
+        petPost('/api/pause').then(syncTrayMenu)
+      },
+    },
     { label: '打开统计面板', click: () => openPanel() },
     { type: 'separator' },
     { label: '退出伴侣', click: () => app.quit() },
   ])
+  menuShowPet = menu.items[0]
+  menuPause = menu.items[2]
   tray.setContextMenu(menu)
   tray.on('click', () => toggleWindow())
+  syncTrayMenu()
 }
 
 function toggleWindow() {
@@ -493,6 +546,8 @@ function startWatchdog() {
         relaunchIfStale() // 壳文件更新过就自我重启，保证跑的是最新代码
         try {
           const state = await res.json()
+          lastPetState = state // 托盘菜单读它判断统计是否暂停（不必单独发请求）
+          scheduleTraySync() // paused 可能在面板里被改过，菜单勾选态要跟上
           const s = state && state.settings
           if (win && !win.isDestroyed() && s) {
             // 伴侣显隐：设置页开关（showPet）控制窗口显示/隐藏。

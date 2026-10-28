@@ -249,6 +249,35 @@ test('Electron 壳：拖拽跟手 IPC 面完整', async () => {
   assert.ok(page.includes('balance.lowBalance'), '举牌判警应读设置阈值')
 })
 
+test('托盘菜单必须状态感知（用户：二合一标签点了不知道现在什么状态）', async () => {
+  const main = await readFile(join(ROOT, 'electron', 'main.cjs'), 'utf8')
+  // 旧标签是「显示 / 隐藏伴侣」「暂停 / 恢复统计」——看不出当前态，也看不出有没有按上。
+  assert.ok(!main.includes('显示 / 隐藏伴侣'), '不得再用二合一标签（显示/隐藏）')
+  assert.ok(!main.includes('暂停 / 恢复统计'), '不得再用二合一标签（暂停/恢复）')
+  // 开关类用 checkbox：勾选 = 当前状态，一眼可见。
+  assert.ok((main.match(/type: 'checkbox'/g) || []).length >= 2, '显隐与暂停两项都应是 checkbox')
+  // 状态来源：窗口 isVisible + 插件 /api/state 的 settings.paused（看门狗轮询缓存）。
+  assert.ok(main.includes('win.isVisible()'), '显隐勾选态必须读窗口真实可见性')
+  assert.ok(main.includes('readPetState'), '暂停勾选态必须读插件真实状态')
+  assert.ok(main.includes('lastPetState = state'), '看门狗轮询应缓存 state 供菜单读')
+  // 状态变化要能刷新菜单：窗口显隐事件 + 看门狗轮询后都要 sync。
+  assert.ok(main.includes("win.on('show', scheduleTraySync)"), '窗口显示后应刷新菜单')
+  assert.ok(main.includes("win.on('hide', scheduleTraySync)"), '窗口隐藏后应刷新菜单')
+  // 轮询拿到 state 后必须触发菜单刷新（按代码顺序判定，不依赖注释文本）。
+  const atState = main.indexOf('lastPetState = state')
+  const atSettings = main.indexOf('const s = state', atState)
+  assert.ok(atState > 0 && atSettings > atState, '看门狗应解析 state.settings')
+  assert.ok(
+    main.slice(atState, atSettings).includes('scheduleTraySync()'),
+    '缓存 state 后应触发菜单刷新（paused 可能在面板里被改过）',
+  )
+  // 悬停 tooltip 也要带状态（不点开菜单就能看）。
+  assert.ok(main.includes('setToolTip(`DSH 伴侣'), 'tooltip 应带当前显隐/暂停状态')
+  // 标签直接写当前态（暂停时写「恢复统计（当前已暂停）」这类自解释文案）。
+  assert.ok(main.includes('当前已暂停'), '暂停项标签应自解释当前态')
+  assert.ok(main.includes('当前运行中'), '运行中时标签也应自解释')
+})
+
 test('命中区域 = 宠物本体：周边透明区不再可拖/可点（智能穿透）', async () => {
   const html = petPageHTML()
   // Electron 舞台不再是原生拖拽区（旧版整窗 drag——周边透明区也能拖走窗口，
