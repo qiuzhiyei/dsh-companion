@@ -164,6 +164,15 @@ export interface PetSettings {
      */
     lowBalance: number | null
   }
+  /**
+   * 数据保留：任务记录只保留最近 retentionMonths 个月，更早的自动清理。
+   * null = 永久保留（默认，与历史行为一致）。夹在 1..120。
+   *
+   * 为什么要有：JSON 后端有 5000 条上限、余额快照有 90 天清理，唯独 SQLite
+   * 任务表两者皆无 —— 长期用会一直涨。清理是不可逆的，所以面板侧要先预览
+   * 条数 + 二次确认（与会话删除同款谨慎标准）。
+   */
+  retention: { months: number | null }
 }
 
 /**
@@ -232,6 +241,7 @@ export const DEFAULT_SETTINGS: PetSettings = {
     intervalMinutes: 30,
     lowBalance: null,
   },
+  retention: { months: null },
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +420,21 @@ export interface RankingResult {
 }
 
 export type ExportFormat = 'csv' | 'json'
+
+/**
+ * 数据保留视图（GET /api/retention）：清理前先看会删多少条。
+ * months=null（永久保留）时 cutoff 与 candidates 都是 null/0，面板禁用清理按钮。
+ */
+export interface RetentionView {
+  /** 当前保留期（月）；null = 永久保留。 */
+  months: number | null
+  /** 清理截止时间戳（早于此的会被删）；months=null 时为 null。 */
+  cutoff: number | null
+  /** 早于 cutoff 的任务条数（= 立即清理会删掉的量）。 */
+  candidates: number
+  /** 库内任务总数。 */
+  total: number
+}
 
 /** 统计图表的一个时间桶（/api/stats/series）。 */
 export interface SeriesBucket {

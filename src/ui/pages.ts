@@ -1158,6 +1158,18 @@ export function panelPageHTML(): string {
   .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .act-btn { background: #1d2935; color: #9db4c8; border: 1px solid #2c3b49; border-radius: 10px; padding: 10px 12px; cursor: pointer; font-size: 13px; width: 100%; transition: border-color .15s, color .15s, background .15s; }
   .act-btn:hover { border-color: #3a7ab0; color: #dbe7f2; background: #22303d; }
+  /* 数据保留：卡内联确认条（清理不可逆，先预览条数再确认；不用 fixed 浮条，
+     语义上属于这张卡，浮条会让「删哪里的数据」变含糊）。 */
+  .retention-confirm { margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: 12.5px;
+    line-height: 1.6; background: rgba(58, 28, 28, .95); border: 1px solid #b05252; color: #ffb4a0; }
+  .retention-confirm[hidden] { display: none; }
+  .retention-confirm .rc-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .retention-confirm .rc-actions .act-btn { width: auto; flex: 1; padding: 6px 10px; font-size: 12px; }
+  button.act-btn.danger { background: #8f3a34; color: #ffe3da; border-color: #b05252; }
+  button.act-btn.danger:hover { background: #a8433c; border-color: #cf6a63; color: #fff; }
+  /* 禁用态必须看得出来（永久保留 / 无过期数据时清理按钮置灰），否则像能点其实点不动。 */
+  .act-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .act-btn:disabled:hover { border-color: #2c3b49; color: #9db4c8; background: #1d2935; }
   @media (max-width: 900px) {
     .settings-grid { grid-template-columns: 1fr; }
     .set-card.span-2 { grid-column: auto; }
@@ -1284,6 +1296,10 @@ export function panelPageHTML(): string {
     .price-empty { color: #7b8b9a; background: #f7f9fb; border-color: #c9d4df; }
     .act-btn { background: #eef2f6; color: #5b6d7e; border-color: #d5dde6; }
     .act-btn:hover { border-color: #3a7ab0; color: #26333f; background: #e2ecf5; }
+    .retention-confirm { background: rgba(253, 234, 229, .96); border-color: #d98d7e; color: #a13c29; }
+    button.act-btn.danger { background: #b3402e; color: #fff; border-color: #b3402e; }
+    button.act-btn.danger:hover { background: #9c3526; border-color: #9c3526; }
+    .act-btn:disabled:hover { border-color: #d5dde6; color: #5b6d7e; background: #eef2f6; }
     .save-toast { background: #dff5e7; color: #1d7a46; border-color: #8fd4ab; }
     .save-toast.err { background: #fdeae5; color: #b3402e; border-color: #d98d7e; }
     th { color: #7b8b9a; border-bottom-color: #d5dde6; background: #f4f6f9; }
@@ -1649,6 +1665,34 @@ export function panelPageHTML(): string {
               <button class="act-btn" id="btnExportCsv">⬇ 任务 CSV</button>
               <button class="act-btn" id="btnExportJson">⬇ 任务 JSON</button>
             </div>
+          </div>
+          <div class="set-card tone-blue" id="card-retention">
+            <div class="set-head">
+              <span class="set-ico">🗄</span>
+              <div><h2>数据保留<button class="info" type="button" data-tip="设了保留期后，超过期限的任务记录每天自动清理一次（启动 30 秒后先跑一次），不再询问——这是「保留 N 个月」这条策略本身的含义。手动点「立即清理」则会先显示将删除多少条并要二次确认。删除不可恢复，想留全量历史请先导出 CSV/JSON。永久保留 = 完全不删（默认）。余额快照不受此设置影响（固定保留 90 天）。">i</button></h2><p>历史任务自动清理</p></div>
+            </div>
+            <div class="set-item">
+              <div class="item-text"><span>保留时长</span><small>永久 = 不清理（默认）；设了期限即每天自动清理，不再询问</small></div>
+              <span class="unit"><select class="num-input" id="setRetentionMonths" style="width:112px">
+                <option value="">永久</option>
+                <option value="1">1 个月</option>
+                <option value="3">3 个月</option>
+                <option value="6">6 个月</option>
+                <option value="12">12 个月</option>
+                <option value="24">24 个月</option>
+              </select></span>
+            </div>
+            <div class="set-item">
+              <div class="item-text"><span>当前库量</span><small id="retentionInfo">加载中…</small></div>
+            </div>
+            <div class="retention-confirm" id="retentionConfirm" hidden>
+              <span id="retentionConfirmText"></span>
+              <span class="rc-actions">
+                <button class="act-btn" id="retentionCancel" type="button">取消</button>
+                <button class="act-btn danger" id="retentionConfirmYes" type="button">确认删除</button>
+              </span>
+            </div>
+            <button class="act-btn" id="btnPruneNow" style="margin-top:12px">🧹 立即清理</button>
           </div>
           <div class="set-card tone-cyan" id="mockFieldset">
             <div class="set-head">
@@ -2405,6 +2449,19 @@ async function loadSettings() {
   }
   balSel.value = balMin
   $('setBalanceLow').value = bal.lowBalance > 0 ? String(bal.lowBalance) : ''
+  const ret = s.retention || {}
+  // 下拉只列了常用档位，但后端允许 1..120 任意整数（经 API 设过就会不在列）。
+  // 缺档位就动态补一个——否则 select 显示空白，用户会误读成「永久保留」，
+  // 而实际正在按 N 个月删数据（余额间隔那里是同款处理）。
+  const retSel = $('setRetentionMonths')
+  const retMonths = ret.months > 0 ? String(ret.months) : ''
+  if (retMonths !== '' && !Array.prototype.some.call(retSel.options, (o) => o.value === retMonths)) {
+    const opt = document.createElement('option')
+    opt.value = retMonths
+    opt.textContent = retMonths + ' 个月'
+    retSel.appendChild(opt)
+  }
+  retSel.value = retMonths
   document.querySelectorAll('#currencySeg button').forEach((b) => b.classList.toggle('active', b.dataset.cur === s.currency))
   const budget = s.budget || {}
   $('setTaskTokens').value = budget.taskMaxTokens || 0
@@ -2415,6 +2472,7 @@ async function loadSettings() {
   $('btnPauseToggle').textContent = s.paused ? '▶ 恢复统计' : '⏸ 暂停统计'
   renderLive()
   renderBudgetUsage()
+  void loadRetention() // 数据保留卡：库量与可清理条数（独立请求，失败不影响设置页）
 }
 
 /**
@@ -2491,6 +2549,103 @@ function putBalance() {
 $('setBalanceEnabled').onchange = putBalance
 $('setBalanceInterval').onchange = putBalance
 $('setBalanceLow').onchange = putBalance
+
+// ---- 数据保留：清理不可逆，先拉预览（会删多少条）→ 二次确认 → 才真删 ----
+let retentionState = null // GET /api/retention 的最近一次结果
+let retentionBusy = false
+
+function retentionCutoffText(cutoff) {
+  const d = new Date(cutoff)
+  const p = (n) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+
+function setRetentionInfo(text) {
+  const el = $('retentionInfo')
+  if (el) el.textContent = text
+}
+
+function renderRetention() {
+  const r = retentionState
+  const btn = $('btnPruneNow')
+  if (!r) { setRetentionInfo('加载中…'); return }
+  if (r.months === null) {
+    setRetentionInfo('共 ' + r.total.toLocaleString() + ' 条 · 永久保留（不清理）')
+    btn.disabled = true
+    btn.textContent = '🧹 立即清理（永久保留中）'
+    return
+  }
+  setRetentionInfo('共 ' + r.total.toLocaleString() + ' 条 · 保留 ' + r.months + ' 个月 · 可清理 ' + r.candidates.toLocaleString() + ' 条')
+  btn.disabled = retentionBusy || r.candidates <= 0
+  btn.textContent = r.candidates > 0
+    ? '🧹 立即清理 ' + r.candidates.toLocaleString() + ' 条'
+    : '🧹 立即清理（无过期数据）'
+}
+
+async function loadRetention() {
+  try {
+    const r = await (await fetch('/api/retention')).json()
+    retentionState = r
+  } catch (err) {
+    retentionState = null
+    setRetentionInfo('伴侣服务未连接')
+    return
+  }
+  renderRetention()
+}
+
+function retentionConfirmClose() {
+  // 面板页的隐藏惯例是 hidden **属性**（.filter-pop[hidden] / .bulk-bar[hidden] 同款），
+  // 不是 .hidden 类——那个类只在悬浮页定义，用错了确认条会一直露在外面。
+  $('retentionConfirm').hidden = true
+}
+
+$('setRetentionMonths').onchange = (e) => {
+  const raw = e.target.value
+  // 空串 = 永久（null）；其余走数字，后端还会再夹一次 1..120。
+  put({ retention: { months: raw === '' ? null : Number(raw) } }).then(loadRetention)
+}
+
+$('btnPruneNow').onclick = () => {
+  const r = retentionState
+  if (!r || r.months === null || r.candidates <= 0 || retentionBusy) return
+  // 与会话删除同款谨慎标准：明示条数 + 截止时间 + 不可恢复，确认后才动手。
+  $('retentionConfirmText').textContent =
+    '将删除 ' + r.candidates.toLocaleString() + ' 条早于 ' + retentionCutoffText(r.cutoff) +
+    ' 的任务记录，不可恢复。建议先导出 CSV/JSON 备份。'
+  $('retentionConfirm').hidden = false
+}
+
+$('retentionCancel').onclick = retentionConfirmClose
+
+$('retentionConfirmYes').onclick = async () => {
+  if (retentionBusy) return
+  retentionBusy = true
+  const yes = $('retentionConfirmYes')
+  const btn = $('btnPruneNow')
+  yes.disabled = true
+  btn.disabled = true
+  yes.textContent = '清理中…'
+  try {
+    const res = await (await fetch('/api/retention/prune', { method: 'POST' })).json()
+    const removed = Number(res.removed) || 0
+    retentionConfirmClose()
+    showToast(removed > 0
+      ? '已清理 ' + removed.toLocaleString() + ' 条过期任务，剩余 ' + (Number(res.total) || 0).toLocaleString() + ' 条'
+      : '没有需要清理的过期任务', removed > 0)
+    // 库量变了：统计页与历史页的缓存都要作废，否则会显示清理前的旧数字。
+    dropCache()
+    await loadRetention()
+    loadHistory(true)
+  } catch (err) {
+    showToast('清理失败：伴侣服务未连接', false)
+  } finally {
+    retentionBusy = false
+    yes.disabled = false
+    yes.textContent = '确认删除'
+    renderRetention()
+  }
+}
 $('setRestEnabled').onchange = (e) => {
   const cur = (snap && snap.settings && snap.settings.restReminder) || { intervalMinutes: 60 }
   put({ restReminder: { enabled: e.target.checked, intervalMinutes: Number(cur.intervalMinutes) || 60 } })

@@ -25,6 +25,7 @@ Desktop pet · usage & cost stats · budget alerts · UI enhancements
 - 🐳 **Balance ledger** — samples your DeepSeek account balance, tracks daily/monthly spend, alerts when it runs low
 - 🗂 **History & export** — filter by model / status / date / keyword, export CSV or JSON
 - 🧹 **Session management** — hard-delete sessions (the host only archives)
+- 🗄 **Data retention** — keep only the last N months of task history with automatic pruning (off by default; manual prune previews the row count and asks for confirmation first)
 - ⏰ **Sitting reminder** — nudge to stand up every N minutes
 - 🖥 **Floating window** — transparent, always on top, click-through, real tray icon
 

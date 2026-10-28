@@ -23,6 +23,7 @@ import type {
   PetSnapshot,
   PetState,
   RankingResult,
+  RetentionView,
   StatsSeries,
   TaskSession,
 } from '../types.js'
@@ -59,6 +60,10 @@ export interface PetServerDeps {
   balance(force: boolean): Promise<BalanceView>
   /** 余额日/月聚合（消耗 = 首末快照下降量；充值单列）。 */
   balanceSummary(period: 'today' | 'month'): Promise<BalanceSummary>
+  /** 数据保留预览（当前保留期 + 会删掉多少条 + 库内总数）。 */
+  retention(): Promise<RetentionView>
+  /** 立即清理过期任务（不可逆）；返回删除条数与库内剩余总数。 */
+  pruneRetention(): Promise<{ removed: number; total: number; months: number | null }>
   updateSettings(patch: Record<string, unknown>): Promise<PetSettings>
   togglePause(): Promise<PetSnapshot>
   mockStart(scenario: MockScenario): Promise<{ ok: boolean; message: string }>
@@ -264,6 +269,13 @@ export class PetServer {
     if (path === '/api/balance/summary' && method === 'GET') {
       const period = url.searchParams.get('period') === 'month' ? 'month' : 'today'
       return json(res, await this.deps.balanceSummary(period))
+    }
+    // ---- 数据保留：先预览（会删多少条）再清理，清理不可逆 ----
+    if (path === '/api/retention' && method === 'GET') {
+      return json(res, await this.deps.retention())
+    }
+    if (path === '/api/retention/prune' && method === 'POST') {
+      return json(res, await this.deps.pruneRetention())
     }
     if (path === '/api/stats' && method === 'GET') {
       const periodRaw = url.searchParams.get('period') ?? 'today'

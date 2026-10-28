@@ -73,6 +73,10 @@ export interface PetStore {
   /** 时间范围内的任务（升序；图表序列用）。 */
   listTasksBetween(fromMs: number, toMs: number): Promise<TaskSession[]>
   countTasks(): Promise<number>
+  /** 早于 cutoff 的任务条数（数据保留预览：清理前先告诉用户会删多少条）。 */
+  countTasksBefore(cutoffMs: number): Promise<number>
+  /** 删除早于 cutoff 的任务，返回删除条数（不可逆；调用方负责确认）。 */
+  pruneTasks(cutoffMs: number): Promise<number>
   /** 出现过的模型名（去重升序；价格设置“添加模型”的候选）。 */
   listModels(): Promise<string[]>
   /** 会话最近一次已知的模型路由；整轮无 request/header 时任务落库前继承用。 */
@@ -144,6 +148,26 @@ export function clampBalanceMinutes(v: unknown): number {
   return Math.min(1440, Math.max(5, Math.round(n)))
 }
 
+/** 数据保留月数：整数，夹在 1..120；null/0/非法值一律归 null（= 永久保留）。 */
+export function clampRetentionMonths(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.min(120, Math.max(1, Math.round(n)))
+}
+
+/**
+ * 保留期 → 清理截止时间戳（早于此的删掉）。months 为 null 时返回 null。
+ * 用「本地时间的 N 个月前同一时刻」而非固定天数：用户想的是「保留 3 个月」，
+ * 不是「保留 90 天」，跨月份长度差异不该让用户算。
+ */
+export function retentionCutoff(months: number | null, now = Date.now()): number | null {
+  if (months === null) return null
+  const d = new Date(now)
+  d.setMonth(d.getMonth() - months)
+  return d.getTime()
+}
+
 function mergeSettings(value: unknown): PetSettings {
   if (typeof value !== 'object' || value === null) return { ...DEFAULT_SETTINGS }
   const raw = value as Partial<PetSettings>
@@ -204,6 +228,7 @@ function mergeSettings(value: unknown): PetSettings {
           ? Number(raw.balance?.lowBalance)
           : null,
     },
+    retention: { months: clampRetentionMonths(raw.retention?.months) },
   }
 }
 
@@ -370,6 +395,30 @@ export class SqlitePetStore implements PetStore {
   async countTasks(): Promise<number> {
     const row = this.must().prepare('SELECT COUNT(*) AS n FROM task_sessions').get() as { n: number }
     return Number(row.n) || 0
+  }
+
+  async countTasksBefore(cutoffMs: number): Promise<number> {
+    const row = this.must()
+      .prepare('SELECT COUNT(*) AS n FROM task_sessions WHERE startTime < ?')
+      .get(cutoffMs) as { n: number }
+    return Number(row.n) || 0
+  }
+
+  async pruneTasks(cutoffMs: number): Promise<number> {
+    const result = this.must()
+      .prepare('DELETE FROM task_sessions WHERE startTime < ?')
+      .run(cutoffMs)
+    const removed = Number(result?.changes) || 0
+    // 删掉大批行后 SQLite 不会自动收缩文件（页面留在空闲列表里）：
+    // VACUUM 真正回收磁盘空间。数据量大时略慢，但清理是低频手动/每日操作。
+    if (removed > 0) {
+      try {
+        this.must().exec('VACUUM')
+      } catch {
+        // 收缩失败不影响删除结果（空间留着也无害）。
+      }
+    }
+    return removed
   }
 
   async listModels(): Promise<string[]> {
@@ -563,6 +612,20 @@ export class JsonPetStore implements PetStore {
 
   async countTasks(): Promise<number> {
     return this.data.tasks.length
+  }
+
+  async countTasksBefore(cutoffMs: number): Promise<number> {
+    let n = 0
+    for (const task of this.data.tasks) if (task.startTime < cutoffMs) n += 1
+    return n
+  }
+
+  async pruneTasks(cutoffMs: number): Promise<number> {
+    const before = this.data.tasks.length
+    this.data.tasks = this.data.tasks.filter((task) => task.startTime >= cutoffMs)
+    const removed = before - this.data.tasks.length
+    if (removed > 0) await this.flush()
+    return removed
   }
 
   async listModels(): Promise<string[]> {

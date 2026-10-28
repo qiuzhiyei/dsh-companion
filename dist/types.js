@@ -104,6 +104,7 @@ export const DEFAULT_SETTINGS = {
         intervalMinutes: 30,
         lowBalance: null,
     },
+    retention: { months: null },
 };
 /** 事件通道名常量（避免裸字符串）。 */
 export const EVENTS = {

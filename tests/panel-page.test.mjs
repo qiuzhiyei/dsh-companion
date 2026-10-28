@@ -122,6 +122,29 @@ test('面板页：设置分组 + ⓘ 说明 + 统计指标切换', () => {
   }
   assert.ok(html.includes('function dropCache') && html.includes('RESP_CACHE_MS'), '页签响应缓存 + 失效')
   assert.ok(html.includes('id="histRefresh"') && html.includes('id="statsRefresh"'), '手动刷新入口')
+  // 数据保留：清理不可逆，必须先预览条数 + 二次确认（与会话删除同款谨慎标准）
+  assert.ok(html.includes('id="card-retention"'), '缺数据保留卡')
+  assert.ok(html.includes('id="setRetentionMonths"'), '缺保留时长下拉')
+  assert.ok(html.includes('id="btnPruneNow"'), '缺立即清理按钮')
+  assert.ok(html.includes('id="retentionConfirm"'), '缺二次确认条')
+  // 面板页隐藏惯例是 hidden 属性（.filter-pop[hidden]/.bulk-bar[hidden] 同款），
+  // 不是 .hidden 类（那个类只在悬浮页定义）。用错确认条会一直露在外面。
+  assert.ok(html.includes('id="retentionConfirm" hidden'), '确认条初始必须用 hidden 属性（不是 .hidden 类）')
+  assert.ok(html.includes('.retention-confirm[hidden]'), '确认条应有 [hidden] display:none 规则')
+  assert.ok(!/id="retentionConfirm"[^>]*class="[^"]*\bhidden\b/.test(html), '不得误用 .hidden 类')
+  assert.ok(html.includes('id="retentionConfirmYes"'), '确认条缺确认按钮')
+  assert.ok(html.includes('id="retentionCancel"'), '确认条缺取消按钮')
+  assert.ok(html.includes('不可恢复'), '清理确认必须明示不可恢复')
+  assert.ok(html.includes("fetch('/api/retention')"), '缺保留预览端点')
+  assert.ok(html.includes("fetch('/api/retention/prune'"), '缺清理端点')
+  // 永久保留时按钮必须禁用（否则用户点了没反应，像坏了）
+  assert.ok(html.includes('btn.disabled = true'), '永久保留应禁用清理按钮')
+  assert.ok(html.includes('.act-btn:disabled'), '禁用态要有可见样式（不能看着能点其实点不动）')
+  // 清理后库量变了：统计/历史缓存必须作废并重载，否则显示清理前的旧数字
+  assert.ok(html.includes('dropCache()') && html.includes('loadHistory(true)'), '清理后应作废缓存并重载历史')
+  // 下拉只列常用档位但后端允许 1..120 任意整数：缺档位必须动态补，否则 select
+  // 显示空白会被误读成「永久保留」，而实际正在删数据。
+  assert.ok(html.includes('retSel.appendChild(opt)'), '非常规档位应动态补进下拉（防误读成永久保留）')
 })
 
 test('面板页：跟随系统深浅色（深色默认 + 浅色媒体覆盖 + 图表变量）', () => {

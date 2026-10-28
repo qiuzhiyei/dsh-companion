@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openPetStore, JsonPetStore, SqlitePetStore } from '../dist/storage/store.js'
+import { openPetStore, JsonPetStore, SqlitePetStore, clampRetentionMonths, retentionCutoff } from '../dist/storage/store.js'
 import { computePeriodStats, computeRanking, periodRange } from '../dist/storage/stats.js'
 import { exportSessions } from '../dist/storage/export.js'
 
@@ -267,4 +267,98 @@ test('periodRange: today 边界为本地零点', () => {
   const start = new Date(from)
   assert.equal(start.getHours(), 0)
   assert.equal(to - from, 24 * 3600 * 1000)
+})
+
+test('clampRetentionMonths: 夹 1..120，空/0/负数/垃圾归 null（= 永久保留）', () => {
+  assert.equal(clampRetentionMonths(null), null)
+  assert.equal(clampRetentionMonths(undefined), null)
+  assert.equal(clampRetentionMonths(''), null)
+  assert.equal(clampRetentionMonths(0), null, '0 不是「删光」，是永久保留')
+  assert.equal(clampRetentionMonths(-3), null)
+  assert.equal(clampRetentionMonths('abc'), null)
+  assert.equal(clampRetentionMonths(3), 3)
+  assert.equal(clampRetentionMonths('6'), 6, '下拉框传字符串也要认')
+  assert.equal(clampRetentionMonths(2.4), 2, '四舍五入取整')
+  assert.equal(clampRetentionMonths(9999), 120, '超上限夹到 120')
+})
+
+test('retentionCutoff: null 永久保留；否则本地时间 N 个月前', () => {
+  assert.equal(retentionCutoff(null), null)
+  const now = new Date(2026, 9, 15, 12, 0).getTime() // 2026-10-15 12:00 本地
+  const c3 = retentionCutoff(3, now)
+  const d = new Date(c3)
+  assert.equal(d.getFullYear(), 2026)
+  assert.equal(d.getMonth(), 6, '10 月往前 3 个月 = 7 月')
+  assert.equal(d.getDate(), 15)
+  assert.equal(d.getHours(), 12, '保留「同一时刻」，不是取整到天')
+  assert.ok(c3 < now, '截止时间必须在过去')
+})
+
+for (const Backend of [SqlitePetStore, JsonPetStore]) {
+  const label = Backend === SqlitePetStore ? 'sqlite' : 'json'
+
+  test(`[${label}] 数据保留：预览条数 + 清理只删过期、保留未过期`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-companion-test-'))
+    try {
+      const store =
+        Backend === SqlitePetStore
+          ? new SqlitePetStore(join(dir, 'pet.sqlite'))
+          : new JsonPetStore(join(dir, 'pet-data.json'))
+      await store.init()
+      const now = Date.now()
+      const month = 30 * 24 * 3600 * 1000
+      // 4 条过期（10/8/6/4 个月前）+ 2 条保留（1 个月前 / 刚刚）
+      await store.saveTask(makeTask({ id: 'old:10', startTime: now - 10 * month }))
+      await store.saveTask(makeTask({ id: 'old:8', startTime: now - 8 * month }))
+      await store.saveTask(makeTask({ id: 'old:6', startTime: now - 6 * month }))
+      await store.saveTask(makeTask({ id: 'old:4', startTime: now - 4 * month }))
+      await store.saveTask(makeTask({ id: 'keep:1', startTime: now - 1 * month }))
+      await store.saveTask(makeTask({ id: 'keep:0', startTime: now }))
+      assert.equal(await store.countTasks(), 6)
+
+      // 预览：保留 3 个月 → 4 条会被删（不真删）
+      const cutoff = retentionCutoff(3, now)
+      assert.equal(await store.countTasksBefore(cutoff), 4, '预览条数必须是 4')
+      assert.equal(await store.countTasks(), 6, '预览不得产生副作用')
+
+      // 真清理：删 4 条，剩 2 条；且删的是过期的、留的是新的
+      assert.equal(await store.pruneTasks(cutoff), 4)
+      assert.equal(await store.countTasks(), 2)
+      const rest = await store.listTasks(10)
+      assert.deepEqual(rest.map((t) => t.id).sort(), ['keep:0', 'keep:1'], '必须只留未过期的')
+
+      // 幂等：再清一次删 0 条（自动清理每天跑，不能重复报错或误删）
+      assert.equal(await store.pruneTasks(cutoff), 0, '重复清理应删 0 条')
+      assert.equal(await store.countTasks(), 2)
+
+      // 边界：cutoff 在未来 = 全删；永久保留（cutoff=null 由上层拦截）不在这里测
+      assert.equal(await store.pruneTasks(now + month), 2, '未来 cutoff 应清空')
+      assert.equal(await store.countTasks(), 0)
+      await store.close()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}
+
+test('mergeSettings: retention.months 回读与非法值归 null', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-companion-test-'))
+  try {
+    const store = new JsonPetStore(join(dir, 'pet-data.json'))
+    await store.init()
+    // 老库（没有 retention 字段）必须回落到「永久保留」，绝不能默认删数据。
+    await store.saveSettings({ skin: 'whale' })
+    assert.equal((await store.loadSettings()).retention.months, null, '老库默认永久保留')
+    await store.saveSettings({ skin: 'whale', retention: { months: 6 } })
+    assert.equal((await store.loadSettings()).retention.months, 6)
+    await store.saveSettings({ skin: 'whale', retention: { months: 0 } })
+    assert.equal((await store.loadSettings()).retention.months, null, '0 = 永久保留')
+    await store.saveSettings({ skin: 'whale', retention: { months: '垃圾' } })
+    assert.equal((await store.loadSettings()).retention.months, null, '非法值 = 永久保留')
+    await store.saveSettings({ skin: 'whale', retention: { months: 9999 } })
+    assert.equal((await store.loadSettings()).retention.months, 120, '超上限夹到 120')
+    await store.close()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

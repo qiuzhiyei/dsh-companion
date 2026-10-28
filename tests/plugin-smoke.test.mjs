@@ -270,6 +270,38 @@ test('插件完整生命周期：加载 → 服务 → 模拟任务 → 统计 �
   })).json()
   assert.equal(balNeg.balance.lowBalance, null, '负数 = 关闭告警')
 
+  // 数据保留：默认永久保留（老库/新库都不许默认删数据），设置后预览与清理生效。
+  const retDef = await (await fetch(`${baseUrl}/api/retention`)).json()
+  assert.equal(retDef.months, null, '默认必须永久保留')
+  assert.equal(retDef.cutoff, null, '永久保留时没有截止时间')
+  assert.equal(retDef.candidates, 0, '永久保留时不得有任何可清理条数')
+  assert.equal(typeof retDef.total, 'number', '应报告库内总数')
+  // 永久保留下「立即清理」必须是 no-op（不能误删）。
+  const noop = await (await fetch(`${baseUrl}/api/retention/prune`, { method: 'POST' })).json()
+  assert.equal(noop.removed, 0, '永久保留时清理必须是 no-op')
+  // 设成 1 个月：mock 任务都是刚刚跑的，不该被清掉。
+  const retSet = await (await fetch(`${baseUrl}/api/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ retention: { months: 1 } }),
+  })).json()
+  assert.equal(retSet.retention.months, 1)
+  const ret1 = await (await fetch(`${baseUrl}/api/retention`)).json()
+  assert.equal(ret1.months, 1)
+  assert.ok(ret1.cutoff > 0, '设了保留期就该有截止时间')
+  assert.equal(ret1.candidates, 0, '刚跑的任务不该算过期')
+  const prune1 = await (await fetch(`${baseUrl}/api/retention/prune`, { method: 'POST' })).json()
+  assert.equal(prune1.removed, 0, '没有过期数据时应删 0 条')
+  assert.equal(prune1.months, 1)
+  assert.equal(prune1.total, ret1.total, '清理 0 条后总数不变')
+  // 非法值一律回落永久保留（0 不能变成「删光所有数据」）。
+  const ret0 = await (await fetch(`${baseUrl}/api/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ retention: { months: 0 } }),
+  })).json()
+  assert.equal(ret0.retention.months, null, 'months=0 必须视为永久保留，不能删光数据')
+
   // 外观设置写入回读（透明度 / 缩放 / 皮肤即时生效链路）。
   const lookRes = await fetch(`${baseUrl}/api/settings`, {
     method: 'PUT',

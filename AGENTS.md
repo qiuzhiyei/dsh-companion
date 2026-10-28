@@ -25,7 +25,7 @@ icon.svg                插件图标（原创 SVG，≤256KiB，经 exports['./i
 README.md / README.en.md  中文主说明 / 英文版（GitHub 门面，截图在 docs/images/）
 LICENSE                 MIT
 docs/                   pitfalls.md（公共坑与 FAQ）、whale-skin-brief.md（皮肤出图交接书）、images/（截图）
-tests/                  node --test，108 项
+tests/                  node --test，113 项
 dist/                   编译产物（**纳入版本库**：git 安装直接用，无需构建；发布前 pnpm run build 后提交）
 .github/workflows/ci.yml CI：node 22.19 + 24 矩阵 → install → build → dist 同步校验 → node --test
 ```
@@ -47,7 +47,7 @@ dist/                   编译产物（**纳入版本库**：git 安装直接用
 
 ```powershell
 pnpm run build        # 双 tsc
-pnpm test             # node --test，108 项应全绿
+pnpm test             # node --test，113 项应全绿
 # 挂测试（防卡死）：
 $job = Start-Job -ScriptBlock { Set-Location <项目根>; pnpm test 2>&1 | Out-String }
 Wait-Job $job -Timeout 160
@@ -80,6 +80,8 @@ PowerShell 输出中文会 GBK 乱码——只是显示问题，不影响文件�
 - **Electron 运行时下载有整体墙钟超时**（electron-runtime.ts DOWNLOAD_TIMEOUT_MS = 5 分钟，AbortController signal 传入 fetch）：没有它，坏镜像/慢速滴数据能把 `inFlight` 永久挂死——这次 DSH 进程周期内伴侣再也不出现（undici 默认只管两次读之间的间隔超时，不管总时长）。好镜像实测 ~20s 下完 150 MB，5 分钟是 15× 余量；超时转「下载超时」人话进日志并 failover 下一镜像。AccountBalanceSource.peek() 同批删除（死代码）
 - **桌宠帧加载走「会话级稳定 URL + 预加载 + 304 协商」三件套**：旧写法 applySkin/showReaction 每次切帧拼 `?t=Date.now()`，叠加服务端 `cache-control: no-cache` → 每次状态切换都强制重新下载 + 重新解码整帧（鲸鱼娘单帧可达 150KB，一个任务 casting→waiting→hooked→reeling→done 就是 5~6 次全量重载，还可能闪白）。现在：①版本戳是**页面会话级常量** `ASSET_V`（不是逐次 Date.now()），URL 统一由 `frameURL()` 构造——改图 + Ctrl+R 仍能立刻看到新素材，开发工作流不变；②切皮肤时 `preloadSkin()` 把该套全部帧（8 状态 + 4 反应，清单来自 /api/skins 的 states/reactions）预热进 `Image()` 并由 `frameHolders` 持有引用防 GC；③服务端 `serveSkin` 用内容哈希弱 ETag 支持 If-None-Match → 304（几百字节而非重传帧体），文件改了哈希即变自动回 200。**竞态坑**：首帧 render 常早于 /api/skins 响应，所以 `preloadSkin` 在 `skinStates[skin]` 还没到位时**必须直接 return 且不标记 preloadedSkins**——否则清单到了会因标记而永远跳过，预加载等于失效。切帧路径必须复用同一个 `frameURL()`，URL 对不上缓存就白做
 - **桌宠页有可见性门控（隐藏不空转）**：伴侣 24/7 常驻，Electron 壳 showPet=false 走 `win.hide()` → Chromium 把页面标记 hidden（浏览器模式最小化同理），而 Chromium 对隐藏窗口**只降频不暂停**。现在 tick(1s) / loadToday(60s) / 空闲小动作(14s) / 漫游调度(5s) 四处全部过 `petHidden()` 门控。**SSE 与系统通知刻意不门控**——窗口藏着也要收到任务完成通知与告警，那正是「被挡住了也不错过」的场景。`visibilitychange` 里两件事：隐藏时 `stopRoam()`（不清 busyRoam 的话那个 async 循环睡醒后会继续发 roamTo 把窗口挪出去，主进程虽已停补间但页面会重新驱动它）；恢复可见时重置 `restBaseTs`/`restSnoozeUntil`/`lastNudge`（隐藏期间久坐计时与 systemIdle 采样都停了，restBaseTs 陈旧会立刻误报「你坐了很久」，而到底有没有离开电脑我们并不知道，保守地重新开始计时）并补一次 render+tick 避免 HUD 停在隐藏前的旧画面。GUI 侧边栏角标那半边本来就有同款 visibilityState 门控，桌宠这半边此前漏了
+- **数据保留（任务表清理）默认永久、双闸门口径**：SQLite 任务表此前无任何清理（JSON 后端有 5000 条上限、余额快照有 90 天 prune，唯独任务表两者皆无）。新增 `settings.retention.months`（**null = 永久保留，是默认值——老库没有该字段时必须回落永久，绝不能默认删数据**；夹 1..120，0/负数/垃圾值一律归 null）。存储层 `countTasksBefore`（预览）+ `pruneTasks`（清理，SQLite 侧删完 VACUUM 真正回收磁盘）双后端一致，照 pruneBalanceSnapshots 范式。自动清理 = 启动后 30s 一次 + 每 24h 一次（避开启动高峰：官方价 3s、余额 5s），非阻塞、失败只 warn。**两个闸门口径不同，别混**：自动清理是策略本身的含义、静默执行不再询问；手动「立即清理」按钮才走「先显示将删 N 条 + 二次确认」（与会话删除同款谨慎标准）。清理后 `dropCache()` + `loadHistory(true)` 作废统计/历史缓存，否则面板显示清理前的旧数字。余额快照不受此设置影响（仍固定 90 天）
+- **⚠ 面板页与悬浮页是两套独立的 CSS，隐藏惯例不同（踩过）**：`.hidden { display:none !important }` **只在悬浮页**（petPageHTML）定义；**面板页**（panelPageHTML）用的是 `hidden` **属性** + `.xxx[hidden]{display:none}` 规则（`.filter-pop[hidden]`/`.bulk-bar[hidden]`/`.stale[hidden]` 同款）。在面板页写 `class="hidden"` 或 `classList.add('hidden')` **不会生效**，元素会一直露在外面（数据保留确认条就中过这个招）。面板页隐藏一律用 `el.hidden = true/false` 并配一条 `.cls[hidden]` 规则。`.act-btn:disabled` 是全局新增（禁用态要看得见，否则像坏了）；会话批量删除的按钮是 `ghost`/`sm-danger` 不带 act-btn，不受影响
 - 详情类数字都进 `/panel` 统计页，角标只留「今日 X token」一行
 - **模型价格三层解析**：自定义行（settings.modelPrices = 纯用户覆盖，不再持久化默认值）> 官方自动抓取（`src/pricing/official.ts` 拉 api-docs.deepseek.com 定价页，模型名从页面动态解析，PEAK 价、USD×`usdCnyRate` 折算，启动 3s 后首抓 + 每 24h 刷新 + 设置页手动同步；缓存在 dataDir/pricing-official.json，离线沿用旧价）> 内置兜底 DEFAULT_MODEL_PRICES。**别再想从 DSH 本地拿价**：dsh-token-meter 的 route-pricing 是 token 计数模块、usage-ledger.json 的 cost 恒为 0，DSH 不保存货币价格；免费渠道模型（aliyun-bailian 的 glm/qwen 等）无公开价源按 0 计，与 DSH 台账一致。**计费按 provider 门控（用户明确口径：只统计登录账号的任务，渠道的不用管）**：只有 provider ∈ {deepseek-account（账号登录）、deepseek-official（API key）} 的任务才计费——两者都直连 api.deepseek.com；自定义渠道（如 aliyun-bailian，本机 DSH 默认走它，见 profiles/desktop/cordis.patch.yml）无论模型名与官方多像一律不计费，Token 照记、费用恒 0（cost.ts isPricedProvider，tracker 与 BudgetGuard 双门控）。渠道别名映射（deepseek-v4.1-flash ↔ deepseek-flash）曾做过一版，后按用户要求移除
 - **缓存命中单独计价**：`ModelPrice.cacheInputPerMillion`（缺省退回 input 价）——DeepSeek 缓存命中价约为未命中的 1/50，不拆分对缓存重度任务会严重高估

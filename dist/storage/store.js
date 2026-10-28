@@ -80,6 +80,27 @@ export function clampBalanceMinutes(v) {
         return DEFAULT_SETTINGS.balance.intervalMinutes;
     return Math.min(1440, Math.max(5, Math.round(n)));
 }
+/** 数据保留月数：整数，夹在 1..120；null/0/非法值一律归 null（= 永久保留）。 */
+export function clampRetentionMonths(v) {
+    if (v === null || v === undefined || v === '')
+        return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0)
+        return null;
+    return Math.min(120, Math.max(1, Math.round(n)));
+}
+/**
+ * 保留期 → 清理截止时间戳（早于此的删掉）。months 为 null 时返回 null。
+ * 用「本地时间的 N 个月前同一时刻」而非固定天数：用户想的是「保留 3 个月」，
+ * 不是「保留 90 天」，跨月份长度差异不该让用户算。
+ */
+export function retentionCutoff(months, now = Date.now()) {
+    if (months === null)
+        return null;
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - months);
+    return d.getTime();
+}
 function mergeSettings(value) {
     if (typeof value !== 'object' || value === null)
         return { ...DEFAULT_SETTINGS };
@@ -138,6 +159,7 @@ function mergeSettings(value) {
                 ? Number(raw.balance?.lowBalance)
                 : null,
         },
+        retention: { months: clampRetentionMonths(raw.retention?.months) },
     };
 }
 const TASK_COLUMNS = `id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, turn INTEGER NOT NULL,
@@ -256,6 +278,29 @@ export class SqlitePetStore {
     async countTasks() {
         const row = this.must().prepare('SELECT COUNT(*) AS n FROM task_sessions').get();
         return Number(row.n) || 0;
+    }
+    async countTasksBefore(cutoffMs) {
+        const row = this.must()
+            .prepare('SELECT COUNT(*) AS n FROM task_sessions WHERE startTime < ?')
+            .get(cutoffMs);
+        return Number(row.n) || 0;
+    }
+    async pruneTasks(cutoffMs) {
+        const result = this.must()
+            .prepare('DELETE FROM task_sessions WHERE startTime < ?')
+            .run(cutoffMs);
+        const removed = Number(result?.changes) || 0;
+        // 删掉大批行后 SQLite 不会自动收缩文件（页面留在空闲列表里）：
+        // VACUUM 真正回收磁盘空间。数据量大时略慢，但清理是低频手动/每日操作。
+        if (removed > 0) {
+            try {
+                this.must().exec('VACUUM');
+            }
+            catch {
+                // 收缩失败不影响删除结果（空间留着也无害）。
+            }
+        }
+        return removed;
     }
     async listModels() {
         const rows = this.must()
@@ -413,6 +458,21 @@ export class JsonPetStore {
     }
     async countTasks() {
         return this.data.tasks.length;
+    }
+    async countTasksBefore(cutoffMs) {
+        let n = 0;
+        for (const task of this.data.tasks)
+            if (task.startTime < cutoffMs)
+                n += 1;
+        return n;
+    }
+    async pruneTasks(cutoffMs) {
+        const before = this.data.tasks.length;
+        this.data.tasks = this.data.tasks.filter((task) => task.startTime >= cutoffMs);
+        const removed = before - this.data.tasks.length;
+        if (removed > 0)
+            await this.flush();
+        return removed;
     }
     async listModels() {
         return [...new Set(this.data.tasks.map((task) => task.model).filter(Boolean))].sort();

@@ -28,7 +28,7 @@ import { TaskTracker, finishedViewFromSession } from './state-machine/task-track
 import { BudgetGuard } from './state-machine/budget.js';
 import { computePeriodStats, computeRanking, computeSeries } from './storage/stats.js';
 import { exportSessions } from './storage/export.js';
-import { openPetStore, clampBalanceMinutes } from './storage/store.js';
+import { openPetStore, clampBalanceMinutes, clampRetentionMonths, retentionCutoff } from './storage/store.js';
 import { AccountBalanceSource } from './balance/source.js';
 import { balancePeriodRange, summarizeBalance } from './balance/ledger.js';
 import { OfficialPricingSource } from './pricing/official.js';
@@ -263,6 +263,64 @@ export function apply(ctx, config = Config({})) {
             balanceTimer.unref?.();
         }
         scheduleBalanceSampling();
+        // ---- ②c 数据保留（任务表清理）----
+        // SQLite 任务表此前无任何清理（JSON 后端有 5000 条上限、余额快照有 90 天
+        // prune），长期用会一直涨。策略：启动后延迟跑一次 + 每 24h 一次；
+        // retention.months = null（默认）时完全不删，与历史行为一致。
+        let retentionTimer = null;
+        let retentionStartupTimer = null;
+        async function retentionView() {
+            const months = currentSettings.retention.months;
+            const cutoff = retentionCutoff(months);
+            const total = await store.countTasks().catch(() => 0);
+            const candidates = cutoff === null ? 0 : await store.countTasksBefore(cutoff).catch(() => 0);
+            return { months, cutoff, candidates, total };
+        }
+        async function pruneRetention() {
+            const months = currentSettings.retention.months;
+            const cutoff = retentionCutoff(months);
+            if (cutoff === null) {
+                return { removed: 0, total: await store.countTasks().catch(() => 0), months };
+            }
+            const removed = await store.pruneTasks(cutoff);
+            // 删后重新计数（不用 total-removed 相减：countTasks 失败兜底为 0 时会算出负数）。
+            const total = await store.countTasks().catch(() => 0);
+            if (removed > 0) {
+                log.info(`数据保留：清理 ${removed} 条早于 ${new Date(cutoff).toLocaleDateString('zh-CN')} 的任务，剩余 ${total} 条`);
+            }
+            return { removed, total, months };
+        }
+        /** 自动清理：非阻塞、失败只 warn（清理不是关键路径，不能影响启动）。 */
+        async function autoPrune(reason) {
+            if (currentSettings.retention.months === null)
+                return;
+            try {
+                const result = await pruneRetention();
+                if (result.removed > 0)
+                    pushSnapshot();
+            }
+            catch (error) {
+                log.warn(`自动清理（${reason}）失败:`, error.message);
+            }
+        }
+        function scheduleRetentionPrune() {
+            if (retentionTimer !== null) {
+                clearInterval(retentionTimer);
+                retentionTimer = null;
+            }
+            if (retentionStartupTimer !== null) {
+                clearTimeout(retentionStartupTimer);
+                retentionStartupTimer = null;
+            }
+            if (currentSettings.retention.months === null)
+                return;
+            // 启动后 30s 再跑：避开插件启动高峰（官方价抓取 3s、余额采样 5s）。
+            retentionStartupTimer = setTimeout(() => { void autoPrune('startup'); }, 30_000);
+            retentionStartupTimer.unref?.();
+            retentionTimer = setInterval(() => { void autoPrune('timer'); }, 24 * 3600 * 1000);
+            retentionTimer.unref?.();
+        }
+        scheduleRetentionPrune();
         // ---- ②a 官方价格源（DeepSeek 定价页自动同步 + 本地缓存）----
         const officialPricing = new OfficialPricingSource({
             dataDir,
@@ -435,6 +493,8 @@ export function apply(ctx, config = Config({})) {
             ranking: (period) => computeRanking(store, period),
             balance: (force) => sampleBalance('manual', force),
             balanceSummary: (period) => balanceSummary(period),
+            retention: () => retentionView(),
+            pruneRetention: () => pruneRetention(),
             updateSettings,
             togglePause: async () => {
                 currentSettings.paused = !currentSettings.paused;
@@ -614,6 +674,12 @@ export function apply(ctx, config = Config({})) {
                 // 阈值或开关变了 → 重新武装（新阈值立即生效，不用等余额回升）。
                 lowBalanceArmed = true;
             }
+            if (patch.retention && typeof patch.retention === 'object') {
+                const retention = patch.retention;
+                if (retention.months !== undefined) {
+                    next.retention = { months: clampRetentionMonths(retention.months) };
+                }
+            }
             if (patch.modelPrices && typeof patch.modelPrices === 'object') {
                 const parsed = parsePriceTable(patch.modelPrices);
                 if (parsed)
@@ -624,6 +690,7 @@ export function apply(ctx, config = Config({})) {
             tracker.setPrices(effectivePrices());
             await store.saveSettings(currentSettings);
             scheduleBalanceSampling();
+            scheduleRetentionPrune();
             pushSnapshot();
             return { ...currentSettings, modelPrices: { ...currentSettings.modelPrices } };
         }
@@ -641,6 +708,14 @@ export function apply(ctx, config = Config({})) {
             if (balanceStartupTimer !== null) {
                 clearTimeout(balanceStartupTimer);
                 balanceStartupTimer = null;
+            }
+            if (retentionTimer !== null) {
+                clearInterval(retentionTimer);
+                retentionTimer = null;
+            }
+            if (retentionStartupTimer !== null) {
+                clearTimeout(retentionStartupTimer);
+                retentionStartupTimer = null;
             }
             if (alertClearTimer !== null)
                 clearTimeout(alertClearTimer);
