@@ -58,6 +58,8 @@ const MIN_W = 120
 const MIN_H = 120
 const MAX_W = 1200
 const MAX_H = 1200
+// 「伴侣回到屏幕」锚点距工作区边缘的留白（右上角，别贴边压住圆角/摄像头区）。
+const HOME_MARGIN = 32
 
 function isSaneSize(w, h) {
   return Number.isFinite(w) && Number.isFinite(h) &&
@@ -183,6 +185,36 @@ function onDisplaysChanged() {
   // 立刻夹回当前屏幕，别等用户发现宠物没了再去翻托盘救援。
   safeSetBounds(win, clampBounds(win.getBounds()))
   scheduleSaveBounds()
+}
+
+/**
+ * 「伴侣回到屏幕」的锚点：窗口所在（最近）屏幕工作区的**右上角**（留 HOME_MARGIN）。
+ *
+ * 旧救援只做 clampBounds——宠物若本来就在屏内（比如被拖到角落），夹取 = 无操作，
+ * 用户点了毫无反应、以为按钮是坏的（真实反馈 2026-10-28：「我放到角落他也不会
+ * 回来」）。现制一点 = 传送到固定可预期的位置：不管当前在哪/是否越界，都回右上角。
+ * 取「最近屏幕」而非主屏：宠物在副屏角落时回副屏右上角，符合「回到（当前）屏幕」。
+ */
+function homeAnchorBounds() {
+  const base = win && !win.isDestroyed() ? win.getBounds() : defaultBounds()
+  const w = isSaneSize(base.width, base.height) ? base.width : DEFAULT_W
+  const h = isSaneSize(base.width, base.height) ? base.height : DEFAULT_H
+  const cx = (Number.isFinite(base.x) ? base.x : 0) + w / 2
+  const cy = (Number.isFinite(base.y) ? base.y : 0) + h / 2
+  const area = screen.getDisplayNearestPoint({ x: cx, y: cy }).workArea
+  return {
+    x: area.x + area.width - w - HOME_MARGIN,
+    y: area.y + HOME_MARGIN,
+    width: w,
+    height: h,
+  }
+}
+
+function bringBackToScreen() {
+  if (!win) return createWindow()
+  safeSetBounds(win, clampBounds(homeAnchorBounds()))
+  win.show()
+  scheduleSaveBounds() // 救回的位置要持久化，别重启又回到角落/屏外
 }
 
 function createWindow() {
@@ -315,13 +347,6 @@ function toggleWindow() {
     safeSetBounds(win, clampBounds(win.getBounds()))
     win.show()
   }
-}
-
-// 托盘救援：无论窗口在哪，夹回屏幕并显示。
-function bringBackToScreen() {
-  if (!win) return createWindow()
-  safeSetBounds(win, clampBounds(win.getBounds()))
-  win.show()
 }
 
 function openPanel() {

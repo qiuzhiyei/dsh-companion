@@ -226,6 +226,30 @@ test('源码契约: 所有 setBounds 调用都必须过 clampBounds 或 safeSetB
     'scale 改尺寸必须过 clampBounds')
 })
 
+test('源码契约: 「伴侣回到屏幕」必须传送到右上角锚点（旧 clamp 对屏内角落无效）', () => {
+  // 真实反馈（2026-10-28）：宠物在屏幕角落时点救援毫无反应——旧实现只做
+  // clampBounds，屏内坐标夹取 = 无操作。现制一点 = 传送到固定可预期位置。
+  assert.ok(MAIN.includes('function homeAnchorBounds'), '缺右上角锚点计算')
+  assert.ok(MAIN.includes('HOME_MARGIN'), '锚点应留边距（别贴边压住圆角/摄像头区）')
+  // 锚点取「最近屏幕」而非主屏：宠物在副屏角落时回副屏右上角。
+  assert.ok(
+    MAIN.slice(MAIN.indexOf('function homeAnchorBounds')).slice(0, 900)
+      .includes('getDisplayNearestPoint'),
+    '锚点应基于窗口所在（最近）屏幕',
+  )
+  // 救援 = 锚点 + 夹取 + 显示 + 持久化（救回的位置别重启又丢）。
+  const at = MAIN.indexOf('function bringBackToScreen')
+  assert.ok(at > 0, '缺救援函数')
+  const body = MAIN.slice(at, at + 400)
+  assert.ok(body.includes('homeAnchorBounds()'), '救援必须用锚点，不能只 clamp 当前 bounds')
+  assert.ok(body.includes('clampBounds('), '锚点也要过夹子兜底')
+  assert.ok(body.includes('win.show()'), '救援应显示窗口')
+  assert.ok(body.includes('scheduleSaveBounds()'), '救回的位置应持久化')
+  // 旧实现（只 clamp 当前 bounds）不得残留为救援主体。
+  assert.ok(!/function bringBackToScreen[\s\S]{0,200}clampBounds\(win\.getBounds\(\)\)/.test(MAIN),
+    '救援不得退回「只夹当前坐标」（屏内角落点了没反应）')
+})
+
 test('源码契约: 尺寸校验有单一事实来源（isSaneSize + 共用常量）', () => {
   assert.ok(MAIN.includes('function isSaneSize'), '缺统一的尺寸合法性判定')
   // 旧的宽松上限 8000 必须清掉，否则畸形尺寸又能溜过去。
