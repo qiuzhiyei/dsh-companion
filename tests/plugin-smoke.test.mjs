@@ -182,6 +182,20 @@ test('插件完整生命周期：加载 → 服务 → 模拟任务 → 统计 �
   assert.equal(pngBytes[0], 0x89, 'PNG 魔数 \\x89')
   assert.equal(pngBytes[1], 0x50)
 
+  // 皮肤帧协商缓存：帧是静态资源，带 If-None-Match 必须回 304（不重传帧体）。
+  // 没有它，每次重新验证都要重传整帧（鲸鱼娘单帧可达 150KB）。
+  const etag = skinRes.headers.get('etag')
+  assert.ok(etag, '皮肤资源应带 ETag')
+  assert.ok(etag.startsWith('W/"'), 'ETag 应为弱校验（内容哈希）')
+  const revalidated = await fetch(`${baseUrl}/skins/whale/hooked.png`, {
+    headers: { 'if-none-match': etag },
+  })
+  assert.equal(revalidated.status, 304, '带匹配的 If-None-Match 应回 304')
+  const wrongTag = await fetch(`${baseUrl}/skins/whale/hooked.png`, {
+    headers: { 'if-none-match': 'W/"stale-etag-value-000000"' },
+  })
+  assert.equal(wrongTag.status, 200, 'ETag 不匹配（文件改过）必须回 200 重传')
+
   // 页面。
   const petPage = await fetch(`${baseUrl}/`)
   assert.ok(petPage.ok)

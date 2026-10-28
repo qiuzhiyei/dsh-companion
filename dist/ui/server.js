@@ -9,6 +9,7 @@
  * 皮肤名/状态名白名单字符，杜绝目录穿越。
  */
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { panelPageHTML, petPageHTML } from './pages.js';
 const NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MAX_BODY = 1_000_000;
@@ -154,7 +155,7 @@ export class PetServer {
             return html(res, panelPageHTML());
         // 皮肤资源：/skins/<skin>/<state>(.ext)
         if (path.startsWith('/skins/') && method === 'GET') {
-            return this.serveSkin(path, res);
+            return this.serveSkin(path, req, res);
         }
         // API
         if (path === '/api/events' && method === 'GET')
@@ -309,7 +310,7 @@ export class PetServer {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('not found');
     }
-    async serveSkin(path, res) {
+    async serveSkin(path, req, res) {
         const parts = path.split('/').filter(Boolean); // ["skins", skin, file]
         if (parts.length !== 3)
             return notFound(res);
@@ -326,9 +327,19 @@ export class PetServer {
             (await this.deps.skins.readReactionAsset(skin, state));
         if (!asset)
             return notFound(res);
+        // 协商缓存：帧是静态资源（皮肤目录内），用内容哈希做 ETag。命中 If-None-Match
+        // 就回 304（几百字节），不重传 150KB 帧体——配合页面侧会话级稳定 URL，重复
+        // 加载几乎零成本。文件改了哈希即变、自动回 200，开发时改图 Ctrl+R 照常生效。
+        const etag = `W/"${createHash('sha1').update(asset.body).digest('base64').slice(0, 22)}"`;
+        if (req.headers['if-none-match'] === etag) {
+            res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+            res.end();
+            return;
+        }
         res.writeHead(200, {
             'content-type': asset.contentType,
             'cache-control': 'no-cache',
+            etag,
         });
         res.end(asset.body);
     }

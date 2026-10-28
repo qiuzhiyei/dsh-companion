@@ -137,6 +137,16 @@ function fmtTokens(n) {
 }
 function currencySymbol(c) { return c === 'USD' ? '$' : '¥' }
 
+// 皮肤帧 URL 的版本戳：**页面会话级常量**（不是每次切帧都变的 Date.now()）。
+// 旧写法每次状态切换都生成全新 URL，叠加服务端 no-cache → 每帧都强制重新下载
+// +重新解码（鲸鱼娘单帧可达 150KB，一个任务 5~6 次状态切换就是 5~6 次全量重载），
+// 还可能闪白。改成会话常量后同一帧在页面生命周期内 URL 恒定，可命中缓存/内存；
+// 改图 + Ctrl+R（重新加载页面 = 新常量）依旧能立刻看到新素材，开发工作流不变。
+const ASSET_V = String(Date.now())
+function frameURL(skin, name, ext) {
+  return '/skins/' + encodeURIComponent(skin) + '/' + encodeURIComponent(name) + ext + '?v=' + ASSET_V
+}
+
 function applySkin(skin, state) {
   const key = skin + '/' + state
   if (stateShown === key) return
@@ -144,29 +154,58 @@ function applySkin(skin, state) {
   // 状态切换优先于反应帧：新状态直接顶掉反应图并撤销在途计时。
   if (reactionTimer) { clearTimeout(reactionTimer); reactionTimer = null }
   reactionName = null
-  $('petImg').src = '/skins/' + encodeURIComponent(skin) + '/' + encodeURIComponent(state) + '.svg?t=' + Date.now()
+  $('petImg').src = frameURL(skin, state, '.svg')
 }
 
 // ---- 反应帧（manifest reactions 段）：抚摸/拖拽/连点时整图临时替换，
 //      让桌宠「点有反应、拖有脾气」。没有反应帧的皮肤自动退回纯 CSS 动画，
 //      行为与旧版一致。状态帧优先级更高（SSE 一来就顶掉）。----
 let skinReactions = {} // 皮肤名 → 可用反应名（/api/skins 加载一次）
+let skinStates = {} // 皮肤名 → 可用状态名（预加载清单）
 let reactions = [] // 当前皮肤的反应名
 let reactionName = null // 正在显示的反应帧（null = 状态帧）
 let reactionTimer = null
+/** 已预加载过的皮肤名（每套只拉一次）。 */
+const preloadedSkins = {}
+/** 持有 Image 引用防被 GC 回收（回收了就得重新解码，预加载白做）。 */
+const frameHolders = []
+/**
+ * 预加载一套皮肤的全部帧。帧是有限集（8 状态 + 4 反应），一次拉完常驻内存，
+ * 之后每次状态/反应切换都不再有网络与解码开销。URL 必须与 applySkin /
+ * showReaction 用的**逐字一致**（状态帧 .svg、反应帧 .png），否则命中不了缓存。
+ */
+function preloadSkin(skin) {
+  if (!skin || preloadedSkins[skin]) return
+  // /api/skins 还没回来时清单是空的：此时**不能**标记已预加载，否则等清单到了
+  // 会因标记而永远跳过（首帧 render 常早于 /api/skins 响应）。
+  if (!skinStates[skin]) return
+  preloadedSkins[skin] = true
+  const warm = (name, ext) => {
+    const img = new Image()
+    img.src = frameURL(skin, name, ext) // 不挂 DOM，只为取回并解码
+    frameHolders.push(img) // 持有引用，防 GC 回收后又得重新解码
+  }
+  for (const s of skinStates[skin]) warm(s, '.svg')
+  for (const r of skinReactions[skin] || []) warm(r, '.png')
+}
 function refreshReactions() {
-  reactions = (snap && snap.settings && skinReactions[snap.settings.skin]) || []
+  const skin = snap && snap.settings ? snap.settings.skin : null
+  reactions = (skin && skinReactions[skin]) || []
+  if (skin) preloadSkin(skin)
 }
 function loadSkinReactions() {
   fetch('/api/skins').then((r) => r.json()).then((list) => {
-    for (const s of list) skinReactions[s.name] = s.reactions || []
+    for (const s of list) {
+      skinReactions[s.name] = s.reactions || []
+      skinStates[s.name] = s.states || []
+    }
     refreshReactions()
   }).catch(() => {})
 }
 function showReaction(name, ms) {
   if (!snap || !snap.settings || reactions.indexOf(name) < 0) return false
   reactionName = name
-  $('petImg').src = '/skins/' + encodeURIComponent(snap.settings.skin) + '/' + encodeURIComponent(name) + '.png?t=' + Date.now()
+  $('petImg').src = frameURL(snap.settings.skin, name, '.png')
   if (reactionTimer) clearTimeout(reactionTimer)
   reactionTimer = ms > 0 ? setTimeout(clearReaction, ms) : null
   return true
@@ -255,8 +294,15 @@ function renderHud() {
   $('bubbleText').innerHTML = text
 }
 
+// ---- 可见性门控：桌宠 24/7 常驻，窗口藏着/被完全遮挡时不该继续空转耗电 ----
+// Electron 壳 showPet=false 走 win.hide()，Chromium 随即把页面标记为 hidden；
+// 浏览器模式最小化/切后台同理。隐藏期间停掉全部轮询与动画调度。
+// **SSE 与系统通知不门控**——窗口藏着也要收到任务完成通知与告警（那正是
+// 「被挡住了也不错过」的场景）。
+function petHidden() { return document.visibilityState === 'hidden' }
+
 function tick() {
-  if (!snap) return
+  if (!snap || petHidden()) return
   // 久坐提醒提示到期：收起按钮、回落正常 HUD。
   if (restPromptUntil > 0 && Date.now() >= restPromptUntil) {
     restPromptUntil = 0
@@ -334,7 +380,22 @@ es.onmessage = (e) => {
 }
 setInterval(tick, 1000)
 loadToday()
-setInterval(loadToday, 60000)
+setInterval(() => { if (!petHidden()) loadToday() }, 60000)
+
+// 重新可见：久坐计时在隐藏期间停摆（restBaseTs 已陈旧），不重置就会立刻
+// 误报「你坐了很久」——而隐藏期间到底有没有离开电脑我们并不知道（systemIdle
+// 采样同样停了），所以保守地把计时重新开始。同时补一次状态刷新，避免 HUD
+// 停在隐藏前的旧画面上（SSE 期间仍在更新 snap，这里只是重新渲染一遍）。
+document.addEventListener('visibilitychange', () => {
+  // 隐藏：漫游进行中要收手——busyRoam 不清的话，那个 async 循环睡醒后会继续
+  // 发 roamTo 把窗口挪出去（主进程虽已停补间，页面却会重新驱动它）。
+  if (petHidden()) { stopRoam(); return }
+  restBaseTs = Date.now()
+  restSnoozeUntil = 0
+  lastNudge = Date.now() // 漫游计时同样重新开始，别一露头就跑出去
+  if (snap) { render(); tick() }
+  loadToday()
+})
 
 // ---- 拖拽（浏览器模式移动元素；Electron 模式见交互段的 moveBy IPC 拖窗） ----
 // busyDrag：任一模式拖拽进行中——空闲小动作调度器据此让路。
@@ -735,7 +796,7 @@ document.addEventListener('mousemove', (e) => {
 
 // 空闲随机小动作：14 秒一拍、45% 概率——张望 / 伸懒腰 / 打瞌睡（带 💤 和梦话）。
 setInterval(() => {
-  if (!snap || snap.task) return
+  if (!snap || snap.task || petHidden()) return
   if (Date.now() < flashUntil || Date.now() < lineUntil || Date.now() < dizzyUntil) return
   if (busyDrag) return
   if (Math.random() > 0.45) return
@@ -888,7 +949,7 @@ async function roamStart() {
   lastNudge = Date.now()
 }
 setInterval(() => {
-  if (busyRoam || !roamEnabled()) return
+  if (busyRoam || !roamEnabled() || petHidden()) return
   if (!snap || snap.task) return
   if (busyDrag) return
   if (restPromptUntil > 0) return

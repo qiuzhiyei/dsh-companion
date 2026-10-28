@@ -89,6 +89,49 @@ test('桌宠页：互动反应帧接线（点有反应、拖有脾气）', () =>
   assert.ok(html.includes('if (reactionTimer) { clearTimeout(reactionTimer); reactionTimer = null }'), 'applySkin 应撤销在途反应帧')
 })
 
+test('桌宠页：皮肤帧加载策略（会话级稳定 URL + 预加载，不得逐次重载）', () => {
+  const html = petPageHTML()
+  // 真实开销：旧写法每次状态切换拼 ?t=Date.now()，叠加服务端 no-cache →
+  // 每帧强制重新下载+解码（单帧可达 150KB，一个任务 5~6 次切换）。
+  assert.ok(!html.includes("?t=' + Date.now()"), '状态帧不得再用逐次变化的 cache-buster')
+  assert.ok(!html.includes('?t='), '不应残留任何逐次变化的帧 URL 版本戳')
+  assert.ok(html.includes('ASSET_V = String(Date.now())'), '版本戳应是页面会话级常量')
+  assert.ok(html.includes('function frameURL'), '帧 URL 应统一走构造函数（与预加载逐字一致）')
+  // 预加载：帧是有限集，切皮肤时一次拉完常驻内存；Image 引用要被持有防 GC。
+  assert.ok(html.includes('function preloadSkin'), '缺预加载实现')
+  assert.ok(html.includes('preloadedSkins'), '每套皮肤只应预加载一次')
+  assert.ok(html.includes('frameHolders.push'), '必须持有 Image 引用（防 GC 后又重新解码）')
+  assert.ok(html.includes('new Image()'), '预加载应走 Image 预热')
+  assert.ok(html.includes('skinStates'), '预加载清单要含状态帧（不只反应帧）')
+  // 竞态：首帧 render 常早于 /api/skins 响应，清单未到时不得标记已预加载，
+  // 否则清单到了会因标记而永远跳过（等于预加载失效）。
+  assert.ok(html.includes('if (!skinStates[skin]) return'), '清单未就绪时必须跳过且不标记')
+  // 切帧路径必须复用同一构造函数，否则预加载的 URL 对不上、缓存白做。
+  assert.ok(html.includes("frameURL(skin, state, '.svg')"), 'applySkin 应走 frameURL')
+  assert.ok(html.includes("frameURL(snap.settings.skin, name, '.png')"), 'showReaction 应走 frameURL')
+})
+
+test('桌宠页：可见性门控（隐藏不空转，SSE 与通知不受影响）', () => {
+  const html = petPageHTML()
+  assert.ok(html.includes('function petHidden'), '缺可见性判定')
+  assert.ok(html.includes("document.visibilityState === 'hidden'"), '应基于 visibilityState 判定')
+  assert.ok(html.includes("addEventListener('visibilitychange'"), '缺可见性变化监听')
+  // 四处轮询/调度都必须门控（tick、loadToday、空闲小动作、漫游调度）。
+  assert.ok(html.includes('if (!snap || petHidden()) return'), 'tick 应门控')
+  assert.ok(html.includes('if (!petHidden()) loadToday()'), '今日统计轮询应门控')
+  assert.ok(html.includes('snap.task || petHidden()'), '空闲小动作应门控')
+  assert.ok(html.includes('!roamEnabled() || petHidden()'), '漫游调度应门控')
+  // 恢复可见必须重置久坐计时：隐藏期间停摆，restBaseTs 陈旧会立刻误报「坐了很久」。
+  const at = html.indexOf("addEventListener('visibilitychange'")
+  const body = html.slice(at, at + 900)
+  assert.ok(body.includes('restBaseTs = Date.now()'), '恢复可见应重置久坐计时（防误报）')
+  assert.ok(body.includes('lastNudge = Date.now()'), '漫游计时也应重新开始（别一露头就跑）')
+  // 隐藏时必须收手漫游：busyRoam 不清，async 循环睡醒后会继续把窗口挪出去。
+  assert.ok(body.includes('stopRoam()'), '隐藏应停掉进行中的漫游')
+  // SSE 不能被门控：窗口藏着也要收到任务完成通知与告警。
+  assert.ok(!/new EventSource[^]*?petHidden/.test(html.slice(html.indexOf('const es = new EventSource'), html.indexOf('const es = new EventSource') + 400)), 'SSE 不应被可见性门控')
+})
+
 test('桌宠页：久坐提醒（健康提醒）接线', () => {
   const html = petPageHTML()
   for (const marker of ['function restCheck', 'function restRemind', 'restBaseTs']) {
