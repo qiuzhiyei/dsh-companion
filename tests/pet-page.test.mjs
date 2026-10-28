@@ -40,9 +40,15 @@ test('桌宠页：交互动画、粒子与台词包齐全（台词跟皮肤走�
   assert.ok(!html.includes('id="menu"'), '菜单 DOM 应已删除')
   const panelForRoam = panelPageHTML()
   assert.ok(panelForRoam.includes('id="setRoam"'), '自由活动开关应在面板设置（伴侣组）')
-  assert.ok(panelForRoam.includes("localStorage.setItem('pet.roam'"), '面板改的是同一个 pet.roam 偏好')
-  assert.ok(html.includes("localStorage.getItem('pet.roam')"), '悬浮页仍从 pet.roam 读开关')
+  // 自由活动开关必须走后端 settings（真实报障：面板关了桌宠还跑——面板与悬浮窗
+  // 在 Electron 里是不同存储分区，localStorage 互不可见）。localStorage 方案已废弃。
+  assert.ok(!panelForRoam.includes("localStorage.setItem('pet.roam'"), '面板不得再写 localStorage（跨分区不可见）')
+  assert.ok(!html.includes("localStorage.getItem('pet.roam')"), '悬浮页不得再读 localStorage')
+  assert.ok(panelForRoam.includes('put({ roam:'), '面板应 PUT roam 到后端 settings')
+  assert.ok(html.includes('snap.settings.roam'), '悬浮页应读后端下发的 settings.roam')
   assert.ok(html.includes('if (busyRoam || !roamEnabled()) return'), '调度器应避开进行中/已关闭')
+  // 逛到一半被关掉也要立刻收手回原位，别把这一轮走完。
+  assert.ok(html.includes('if (!roamEnabled()) { stopRoam(); return }'), '漫游循环内应复查开关')
   // 台词跟皮肤走：五套服装各挂一包（JK→学院、OL→总裁、女警/旗袍→御姐、
   // 中华娘→古风），未列皮肤（自制）退回 default；每类台词都有货。
   assert.ok(html.includes('const LINE_PACKS'), '缺少台词包')
@@ -273,9 +279,15 @@ test('托盘菜单必须状态感知（用户：二合一标签点了不知道�
   )
   // 悬停 tooltip 也要带状态（不点开菜单就能看）。
   assert.ok(main.includes('setToolTip(`DSH 伴侣'), 'tooltip 应带当前显隐/暂停状态')
-  // 标签直接写当前态（暂停时写「恢复统计（当前已暂停）」这类自解释文案）。
-  assert.ok(main.includes('当前已暂停'), '暂停项标签应自解释当前态')
-  assert.ok(main.includes('当前运行中'), '运行中时标签也应自解释')
+  // 标签保持中性、当前态全靠勾选（用户：「恢复统计（当前已暂停）」这种自解释
+  // 文案反而难懂；要的是跟「显示伴侣」一样——标签中性 + 前面一个 √）。
+  assert.ok(main.includes("label: '统计'"), '统计项标签应为中性的「统计」')
+  assert.ok(main.includes("label: '显示伴侣'"), '显隐项标签应为中性的「显示伴侣」')
+  assert.ok(!main.includes('当前已暂停'), '不得再用自解释长文案（用户嫌难懂）')
+  // 勾选语义：统计项勾上 = 正在统计（= !paused），与显隐项同逻辑。
+  assert.ok(main.includes('menuPause.checked = !paused'), '统计勾选态应 = 非暂停')
+  // /api/pause 是 toggle 端点：意图与当前态不同才发请求，避免误切。
+  assert.ok(main.includes('wantRunning !== running'), 'toggle 端点须按意图与当前态差异决定是否发请求')
 })
 
 test('命中区域 = 宠物本体：周边透明区不再可拖/可点（智能穿透）', async () => {

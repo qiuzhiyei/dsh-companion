@@ -828,7 +828,11 @@ let busyRoam = false
 let roamHome = null
 let roamPending = []
 function roamEnabled() {
-  try { return localStorage.getItem('pet.roam') !== '0' } catch (err) { return true }
+  // 读后端 settings（经 /api/state 下发）：面板与悬浮窗在 Electron 里是不同存储
+  // 分区，localStorage 互不可见——旧实现存 localStorage 导致「面板关了还照样跑」。
+  // snap 未就绪时按开处理（与默认值一致），SSE 首帧到了立刻纠正。
+  if (!snap || !snap.settings) return true
+  return snap.settings.roam !== false
 }
 function noteNudge() { lastNudge = Date.now() }
 // 等待也要能被「打断」唤醒：只 clearTimeout 会留下永不 resolve 的 Promise。
@@ -922,6 +926,8 @@ async function roamStart() {
   let pos = { x: home.x, y: home.y }
   for (let i = 0; i < ROAM_MAX_SEG; i++) {
     if (!busyRoam) return
+    // 逛到一半被关掉也要立刻收手回原位（stopRoam 会 goHome），别把这一轮走完。
+    if (!roamEnabled()) { stopRoam(); return }
     const target = roamPick(area, pos, home)
     if (!target) break // 一个点都选不出来（工作区比宠物还小）→ 收工回家
     const dist = Math.hypot(target.x - pos.x, target.y - pos.y)
@@ -2522,11 +2528,12 @@ bindSlider('setOpacity', 'setOpacityVal', 'opacity')
 bindSlider('setScale', 'setScaleVal', 'scale')
 $('setShowPet').onchange = (e) => put({ showPet: e.target.checked })
 $('setPurePet').onchange = (e) => put({ purePetMode: e.target.checked })
-// 自由活动是纯宠物行为偏好，存 localStorage（与悬浮页同源的 pet.roam 键），不进后端 settings；
-// 悬浮页每 5s 的调度器每次重读它，所以这里一改那边立刻生效。
-function roamPref() { try { return localStorage.getItem('pet.roam') !== '0' } catch (err) { return true } }
+// 自由活动开关存后端 settings（所有窗口共用同一份真相）：旧实现存 localStorage，
+// 而面板与桌宠悬浮窗在 Electron 里是不同存储分区、互不可见，导致「面板关了还跑」。
+// 悬浮页每 5s 的调度器读 snap.settings.roam，这里 PUT 后 SSE 快照立刻下发纠正。
+function roamPref() { return !!(snap && snap.settings && snap.settings.roam !== false) }
 $('setRoam').onchange = (e) => {
-  try { localStorage.setItem('pet.roam', e.target.checked ? '1' : '0') } catch (err) { /* 禁 localStorage 时忽略 */ }
+  put({ roam: e.target.checked })
   showToast(e.target.checked ? '✓ 闲时会自己逛逛' : '✓ 已关闭自由活动', true)
 }
 $('setClickThrough').onchange = (e) => put({ clickThrough: e.target.checked })

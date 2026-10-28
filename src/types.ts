@@ -138,6 +138,15 @@ export interface PetSettings {
    * 窗口被挡或最小化也不错过。默认开；短任务不打扰（气泡够用）。
    */
   notify?: boolean
+  /**
+   * 自由活动（闲时自己在屏幕上逛）开关。默认开。
+   *
+   * ⚠ 必须存后端 settings，不能用 localStorage：面板和桌宠悬浮窗在 Electron 里
+   * 是**不同存储分区**（从 DSH 界面开的面板 vs 壳窗口），localStorage 互不可见——
+   * 用户在面板关了自由活动，桌宠那边读不到，照样跑（真实报障 2026-10-28）。
+   * settings 经 /api/state 下发，所有窗口共用同一份真相。
+   */
+  roam?: boolean
   paused: boolean
   autoStart: boolean
   currency: string
@@ -225,6 +234,7 @@ export const DEFAULT_SETTINGS: PetSettings = {
   showPet: true,
   purePetMode: false,
   notify: true,
+  roam: true,
   restReminder: { enabled: true, intervalMinutes: 60 },
   paused: false,
   autoStart: true,

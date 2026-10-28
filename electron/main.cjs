@@ -254,10 +254,9 @@ function syncTrayMenu() {
   const paused = s && s.settings && s.settings.paused === true
   tray.setToolTip(`DSH 伴侣 · 伴侣${shown ? '显示中' : '已隐藏'} · 统计${paused ? '已暂停' : '运行中'}`)
   if (menuShowPet) menuShowPet.checked = shown
-  if (menuPause) {
-    menuPause.checked = paused
-    menuPause.label = paused ? '恢复统计（当前已暂停）' : '暂停统计（当前运行中）'
-  }
+  // 标签保持中性（用户反馈：把当前态拼进标签的长文案反而难懂），
+  // 当前态全靠勾选表达——跟「显示伴侣」一个逻辑：勾上 = 正在统计。
+  if (menuPause) menuPause.checked = !paused
 }
 // 状态变化后刷新菜单：合并 200ms 内的多次调用（SSE 快照可能连发）。
 function scheduleTraySync() {
@@ -284,12 +283,17 @@ function createTray() {
     },
     { label: '伴侣回到屏幕', click: () => bringBackToScreen() },
     {
-      label: '暂停统计',
+      label: '统计',
       type: 'checkbox',
       click: (item) => {
-        // 先乐观对齐勾选（让用户立刻看到反馈），再发请求；失败时 sync 会纠正回来。
-        if (menuPause) menuPause.checked = item.checked
-        petPost('/api/pause').then(syncTrayMenu)
+        // 勾选 = 正在统计（与「显示伴侣」同逻辑）。Electron 点击时会先翻转 checked，
+        // 所以 item.checked 就是用户意图：勾上 = 要运行，取消 = 要暂停。
+        // /api/pause 是 toggle 端点：意图与当前态不同才发请求，相同（菜单与状态
+        // 失同步的罕见情形）只对齐勾选、不发请求。
+        const running = !(lastPetState && lastPetState.settings && lastPetState.settings.paused === true)
+        const wantRunning = item.checked
+        if (menuPause) menuPause.checked = wantRunning // 乐观反馈，请求回来 sync 纠正
+        if (wantRunning !== running) petPost('/api/pause').then(syncTrayMenu)
       },
     },
     { label: '打开统计面板', click: () => openPanel() },

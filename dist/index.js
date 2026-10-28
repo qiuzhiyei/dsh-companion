@@ -628,6 +628,8 @@ export function apply(ctx, config = Config({})) {
                 next.purePetMode = patch.purePetMode;
             if (typeof patch.notify === 'boolean')
                 next.notify = patch.notify;
+            if (typeof patch.roam === 'boolean')
+                next.roam = patch.roam;
             if (typeof patch.autoStart === 'boolean')
                 next.autoStart = patch.autoStart;
             if (patch.restReminder && typeof patch.restReminder === 'object') {

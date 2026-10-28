@@ -88,6 +88,7 @@ export const DEFAULT_SETTINGS = {
     showPet: true,
     purePetMode: false,
     notify: true,
+    roam: true,
     restReminder: { enabled: true, intervalMinutes: 60 },
     paused: false,
     autoStart: true,

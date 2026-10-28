@@ -248,6 +248,25 @@ test('插件完整生命周期：加载 → 服务 → 模拟任务 → 统计 �
   })).json()
   assert.equal(rrClamp.restReminder.intervalMinutes, 480, '间隔超上限应夹到 480')
 
+  // 自由活动开关走后端 settings（跨窗口共用真相；旧 localStorage 方案因面板与
+  // 悬浮窗存储分区隔离而失效——「面板关了桌宠还跑」）。
+  const roamDef = (await (await fetch(`${baseUrl}/api/state`)).json()).settings.roam
+  assert.equal(roamDef, true, '自由活动默认开启')
+  const roamOff = await (await fetch(`${baseUrl}/api/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roam: false }),
+  })).json()
+  assert.equal(roamOff.roam, false, 'PUT roam=false 应生效')
+  const roamState = (await (await fetch(`${baseUrl}/api/state`)).json()).settings.roam
+  assert.equal(roamState, false, '/api/state 应下发 roam=false（悬浮页据此停逛）')
+  const roamOn = await (await fetch(`${baseUrl}/api/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roam: true }),
+  })).json()
+  assert.equal(roamOn.roam, true, 'PUT roam=true 应恢复')
+
   // 余额台账设置：lowBalance 阈值回读（正数保留 / 0 与非法值归 null = 关）。
   const balDef = (await (await fetch(`${baseUrl}/api/state`)).json()).settings.balance
   assert.equal(balDef.lowBalance, null, '余额低告警默认关')

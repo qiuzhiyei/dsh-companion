@@ -707,6 +707,7 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       if (typeof patch.showPet === 'boolean') next.showPet = patch.showPet
       if (typeof patch.purePetMode === 'boolean') next.purePetMode = patch.purePetMode
       if (typeof patch.notify === 'boolean') next.notify = patch.notify
+      if (typeof patch.roam === 'boolean') next.roam = patch.roam
       if (typeof patch.autoStart === 'boolean') next.autoStart = patch.autoStart
       if (patch.restReminder && typeof patch.restReminder === 'object') {
         const rr = patch.restReminder as { enabled?: unknown; intervalMinutes?: unknown }

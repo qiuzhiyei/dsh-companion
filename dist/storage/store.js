@@ -141,6 +141,8 @@ function mergeSettings(value) {
         showPet: raw.showPet !== false,
         purePetMode: raw.purePetMode === true,
         notify: raw.notify !== false,
+        // 自由活动开关：undefined（老库）= 开（与历史默认一致）；显式 false 才关。
+        roam: raw.roam !== false,
         paused: raw.paused === true,
         autoStart: raw.autoStart !== false,
         currency: typeof raw.currency === 'string' ? raw.currency : DEFAULT_SETTINGS.currency,

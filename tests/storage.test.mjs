@@ -83,6 +83,14 @@ for (const Backend of [SqlitePetStore, JsonPetStore]) {
       assert.equal(settings.budget.taskMaxTokens, 1000)
       // 余额低告警阈值：正数如实回读；非法值（0/负数/垃圾）归 null = 关。
       assert.equal(settings.balance.lowBalance, 8.5)
+      // 自由活动开关：老库（无 roam 字段）默认开；显式 false 才关。
+      // 真实报障：旧实现存 localStorage，面板与悬浮窗跨存储分区互不可见，
+      // 「面板关了桌宠还跑」。迁到 settings 后所有窗口共用一份真相。
+      assert.equal(settings.roam, true, '老库默认自由活动开启')
+      await store.saveSettings({ ...settings, roam: false })
+      assert.equal((await store.loadSettings()).roam, false, '显式关闭应持久化')
+      await store.saveSettings({ ...settings, roam: undefined })
+      assert.equal((await store.loadSettings()).roam, true, 'undefined 回落默认开')
       await store.saveSettings({ ...settings, balance: { enabled: true, intervalMinutes: 15, lowBalance: 0 } })
       assert.equal((await store.loadSettings()).balance.lowBalance, null, 'lowBalance=0 应视为关闭')
       await store.saveSettings({ ...settings, balance: { enabled: true, intervalMinutes: 15, lowBalance: 'abc' } })
