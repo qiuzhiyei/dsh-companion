@@ -51,7 +51,6 @@ export const STATE_LABELS: Readonly<Record<PetState, string>> = {
 
 export class PetStateMachine {
   private state: PetState = 'idle'
-  private stateCause = 'init'
   private settleTimer: ReturnType<typeof setTimeout> | null = null
   private readonly settleMs: number
   private readonly onStateChange?: (from: PetState, to: PetState, cause: string) => void
@@ -78,11 +77,6 @@ export class PetStateMachine {
   /** 皮肤切换时注入新文案（未覆盖的状态回落默认）。 */
   setLabels(labels: Partial<Record<PetState, string>>): void {
     this.skinLabels = labels ?? {}
-  }
-
-  /** 任务终态在终态画面停留的时长内不再回 idle（供展示“本次快照”）。 */
-  isSettling(): boolean {
-    return this.settleTimer !== null
   }
 
   handle(event: PetEvent): void {
@@ -138,12 +132,6 @@ export class PetStateMachine {
     }
   }
 
-  /** 强制回 idle（面板“隐藏伴侣”/暂停统计不动状态机，仅 UI 用）。 */
-  forceIdle(cause: string): void {
-    this.clearSettle()
-    this.transition('idle', cause)
-  }
-
   dispose(): void {
     this.disposed = true
     this.clearSettle()
@@ -173,15 +161,10 @@ export class PetStateMachine {
     if (to === this.state) return
     const from = this.state
     this.state = to
-    this.stateCause = cause
     this.onStateChange?.(from, to, cause)
   }
 }
 
 export function taskKey(task: TaskRef): string {
   return `${task.sessionId}:${task.turn}`
-}
-
-export function stateCauseOf(machine: PetStateMachine): string {
-  return (machine as unknown as { stateCause: string }).stateCause
 }

@@ -36,7 +36,6 @@ export const STATE_LABELS = {
 };
 export class PetStateMachine {
     state = 'idle';
-    stateCause = 'init';
     settleTimer = null;
     settleMs;
     onStateChange;
@@ -59,10 +58,6 @@ export class PetStateMachine {
     /** 皮肤切换时注入新文案（未覆盖的状态回落默认）。 */
     setLabels(labels) {
         this.skinLabels = labels ?? {};
-    }
-    /** 任务终态在终态画面停留的时长内不再回 idle（供展示“本次快照”）。 */
-    isSettling() {
-        return this.settleTimer !== null;
     }
     handle(event) {
         if (this.disposed)
@@ -121,11 +116,6 @@ export class PetStateMachine {
                 break;
         }
     }
-    /** 强制回 idle（面板“隐藏伴侣”/暂停统计不动状态机，仅 UI 用）。 */
-    forceIdle(cause) {
-        this.clearSettle();
-        this.transition('idle', cause);
-    }
     dispose() {
         this.disposed = true;
         this.clearSettle();
@@ -152,13 +142,9 @@ export class PetStateMachine {
             return;
         const from = this.state;
         this.state = to;
-        this.stateCause = cause;
         this.onStateChange?.(from, to, cause);
     }
 }
 export function taskKey(task) {
     return `${task.sessionId}:${task.turn}`;
-}
-export function stateCauseOf(machine) {
-    return machine.stateCause;
 }

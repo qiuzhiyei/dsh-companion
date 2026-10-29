@@ -27,7 +27,7 @@ export class BudgetGuard {
         if (limits.taskMaxTokens !== null &&
             limits.taskMaxTokens > 0 &&
             total > limits.taskMaxTokens) {
-            const key = `task-tokens:${taskKey}`;
+            const key = `task-tokens|${taskKey}`;
             if (!this.armedTask.has(key)) {
                 this.armedTask.add(key);
                 return {
@@ -46,7 +46,7 @@ export class BudgetGuard {
                 ? computeCost(promptTokens, completionTokens, cachedTokens, model, this.prices(), now)
                 : 0;
             if (cost > limits.taskMaxCost) {
-                const key = `task-cost:${taskKey}`;
+                const key = `task-cost|${taskKey}`;
                 if (!this.armedTask.has(key)) {
                     this.armedTask.add(key);
                     return {
@@ -105,5 +105,22 @@ export class BudgetGuard {
     /** 任务换新后清掉旧任务的去重标记。 */
     resetTaskArming() {
         this.armedTask.clear();
+    }
+    /**
+     * 任务结束后只清**该任务**的去重标记（task-end 接线处调用）。
+     *
+     * 为什么不在 task-start 全局清空：DSH 允许并行任务（多会话/主会话+子代理），
+     * 全局清空会把其它在跑任务的告警去重标记一并冲掉——A 超限报过一次后 B 启动，
+     * A 再次超限就会重复弹（真实竞态）。taskKey = sessionId:turn 唯一不复用，
+     * 按 key 精准清理既回收内存（armedTask 不再只增不减）又不误伤并行任务。
+     */
+    clearTask(taskKey) {
+        const prefix = `|${taskKey}`;
+        for (const key of this.armedTask) {
+            // key 形如 task-tokens|<taskKey> / task-cost|<taskKey>；taskKey 含 turn 数字，
+            // 不会出现「另一任务的 key 以本任务 key 为后缀」的误匹配。
+            if (key.endsWith(prefix))
+                this.armedTask.delete(key);
+        }
     }
 }

@@ -25,7 +25,7 @@ icon.svg                插件图标（原创 SVG，≤256KiB，经 exports['./i
 README.md / README.en.md  中文主说明 / 英文版（GitHub 门面，截图在 docs/images/）
 LICENSE                 MIT
 docs/                   pitfalls.md（公共坑与 FAQ）、whale-skin-brief.md（皮肤出图交接书）、images/（截图）
-tests/                  node --test，128 项
+tests/                  node --test，131 项
 dist/                   编译产物（**纳入版本库**：git 安装直接用，无需构建；发布前 pnpm run build 后提交）
 .github/workflows/ci.yml CI：node 22.19 + 24 矩阵 → install → build → dist 同步校验 → node --test
 ```
@@ -47,7 +47,7 @@ dist/                   编译产物（**纳入版本库**：git 安装直接用
 
 ```powershell
 pnpm run build        # 双 tsc
-pnpm test             # node --test，128 项应全绿
+pnpm test             # node --test，131 项应全绿
 # 挂测试（防卡死）：
 $job = Start-Job -ScriptBlock { Set-Location <项目根>; pnpm test 2>&1 | Out-String }
 Wait-Job $job -Timeout 160
@@ -75,6 +75,8 @@ PowerShell 输出中文会 GBK 乱码——只是显示问题，不影响文件�
 - 皮肤下拉默认皮肤（whale 鲸鱼娘）永远排第一，其余按字母序。**fisherman（钓鱼佬）与 monitor（状态监测员）均已按用户要求整体移除**（目录删掉；迁移 v2：skin ∈ {fisherman, monitor} → whale，`whaleMigrated` 标记；迁移 v3：skin=monitor → whale，`monitorRemoved` 标记——兜住 v2 之后又显式选过 monitor 的用户；v1 迁移代码与 skinMigrated 字段已整体删除，老库残值被 mergeSettings 静默忽略。mergeSettings 必须如实持久化迁移标记——曾有标记被丢弃导致迁移每次启动重跑，靠幂等没出事）。**鲸鱼娘素材 = AI 生成 PNG**（流程：本会话出提示词交接书 docs/whale-skin-brief.md → 用户交给 WorkBuddy 出图 → 回传接入；第一版手绘 SMIL SVG 占位被用户嫌丑已整体替换——教训：美术活该交给生图 AI，工程侧只定规格和接入）。**5 套服装**：whale（JK学院风，默认）/ whale-ol（秘书OL风）/ whale-police（女警风）/ whale-hanfu（中华娘）/ whale-qipao（旗袍风），角色同为二头身鲸鱼娘（头顶背鳍 + 鲸鱼尾）。每套源 = WorkBuddy 帧包两批：7 动作帧（idle/blink/walk/wave/drag/sleep/jump）+ **11 拟人化帧**（用户追加要求「运行/不运行也要拟人化，每套性格还要不一样」：08_error 委屈哭 / 09_shock 惊吓 / 10_pat 被摸舒服 / 11_angry 鼓腮生气 / 12_dizzy 晕头 / 13_rest 待机放松 / 14_ready 干劲 / 15_think 沉思 / 16_work 卖力 / 17_relief 如释重负 / 18_cheer 欢呼；每套按服装人设演绎同款情绪——JK 元气夸张 / OL 克制优雅 / 女警干练警觉 / 中华娘娴静柔和 / 旗袍优雅傲娇）。**现行状态映射（拟人化帧优先，缺帧回退旧动作帧）**：idle←rest、casting←ready、waiting←think、hooked←work、reeling←relief、done←cheer、error←error、interrupted←shock。**反应帧** = manifest 可选 `reactions` 段（pat/angry/dizzy/drag；SkinRegistry.resolvedReactions 只收真实存在的帧、无回退链；SkinInfo.reactions 经 /api/skins 下发；/skins 路由**先按状态查再按反应帧查**）：pat←被摸舒服、angry←鼓腮生气、dizzy←蚊香眼、drag←05_drag 被拎起。悬浮页接线（pages.ts showReaction/clearReaction）：左键抚摸→pat 帧 1.5s、连点 5 下彩蛋→dizzy 帧 3s（撑满冷静期）、拖拽移动中→drag 帧常驻（ms=0）、拖拽落地→angry 帧 2s（无 angry 帧也要 clearReaction 收掉 drag 帧）；**状态帧优先**——applySkin 切状态立即顶掉反应帧并撤销在途计时；无反应帧的皮肤（自制皮肤）经 reactions.indexOf 判定退回纯 CSS 动画，完全向后兼容。接入脚本模式（%TEMP%\whale-integrate2.py）：①透明预检（RGBA 四角 alpha=0——Electron 透明窗下不透明会变白底板）②每套**两包全 18 帧联合 bbox + 8px padding 统一裁剪**（所有状态/反应同一裁剪框 → 切换不跳）③等比缩到高 400px（显示区 220×200、`#pet img` 有 object-fit: contain，竖图不拉伸）④PNG optimize（每帧 ≤150KB）。宠物页 URL 硬编码 `.svg` 扩展名**无碍**：服务端 /skins 路由剥扩展名按 manifest 解析真实文件。labels 全中性文案；人设口吻跟服装走（SKIN_LINES 映射，见桌宠交互 bullet）；皮肤名 `whale` 不可改（迁移与测试引用）。WorkBuddy 源目录另有立绘透明底 PNG / 扁平矢量风 / SVG 矢量版三套未接入素材（备用）
 - 事件通道命名空间 `companion/*`（state-change / task-finished / budget-alert）
 - **Toast 限流是「滚动 1 小时窗口 8 条」不是「每进程 8 条」**（tray.ts ToastLimiter）：旧口径用光额度后整个进程生命周期永久静音——DSH 开一整天，后半天的预算/余额告警全部弹不出来。别再改回进程级计数
+- **代码卫生（全局审计惯例）**：死代码零容忍——曾积存 `PetServer.invalidate()`（无调用方，SSE 广播全走 index.ts pushSnapshot）、`AccountBalanceSource.peek()`（余额告警重构后失去最后消费者）、`PetStateMachine.isSettling()/forceIdle()/stateCauseOf()` 与 `stateCause` 私有字段（2026-10-29 清；全项目零调用，cause 经 onStateChange 回调传参打日志，字段赋值后无人读）。**新增 API 前必须 grep 消费方**，删除后跑全量测试。
+- **BudgetGuard 告警去重按 taskKey 精准清理，不在 task-start 全局清空**（并行竞态修复 2026-10-29）：DSH 允许并行任务（多会话/主会话+子代理），旧口径 task-start 调 `resetTaskArming()` 整体清空 `armedTask`——任务 B 启动会把在跑任务 A 的告警去重标记冲掉，A 再次超限时 Toast/气泡/系统通知全链路重复弹。现制：`task-end` 时 `guard.clearTask` 按 key 精准清理（taskKey = sessionId:turn 唯一不复用；armedTask 不再只增不减，顺带回收内存）；`togglePause` 恢复统计时保留全局 `resetTaskArming()`（那个语义是对的）。armedTask 内部 key 形如 `task-tokens|<taskKey>` / `task-cost|<taskKey>`（`|` 分隔防前缀误匹配），clearTask 按 `|<taskKey>` 后缀删。测试 cost-budget.test.mjs 锁：并行互不干扰、clearTask 不误伤其它任务、index.ts 接线契约（task-end 精准清理 + task-start 块内不得出现 resetTaskArming）
 - **托盘菜单必须状态感知（用户 2026-10-28 两轮反馈定案）**：初版二合一标签（「显示/隐藏」「暂停/恢复」）看不出当前态；改成自解释长文案后用户又嫌难懂。**最终形态 = 中性标签 + checkbox 勾选表状态**：「显示伴侣」「统计」两项 `type:'checkbox'`，勾上 = 显示中 / 正在统计（统计项 `checked = !paused`），跟系统设置开关一个心智模型。悬停 tooltip 带完整状态（「DSH 伴侣 · 伴侣显示中 · 统计运行中」，不点开菜单就能看）。状态来源取真实值：显隐 `win.isVisible()`，暂停读看门狗每 5s 轮询 `/api/state` 缓存的 `lastPetState.settings.paused`（不为菜单单独发请求）。刷新时机：窗口 show/hide 事件 + 轮询后 `scheduleTraySync()`（200ms 合并）。`/api/pause` 是 toggle 端点：点击回调按「意图(wantRunning=item.checked) ≠ 当前态(running)」才发请求，相同只对齐勾选。测试 pet-page.test.mjs 锁：禁二合一标签、禁自解释长文案、中性标签、checkbox 语义、toggle 判定、tooltip、刷新时机
 - **自由活动开关存后端 settings.roam，不用 localStorage（真实报障 2026-10-28：面板关了桌宠还跑）**：面板与桌宠悬浮窗在 Electron 里是**不同存储分区**（从 DSH 界面开的面板 vs 壳窗口），localStorage 互不可见——旧 `pet.roam` 键方案下用户在面板关了，桌宠那边读不到照样逛。现制 `settings.roam`（默认 true，`raw.roam !== false` 老库回落开）经 /api/state 下发，所有窗口共用一份真相；悬浮页 `roamEnabled()` 读 `snap.settings.roam`，面板 `put({roam})`。**逛到一半被关也要立刻收手**：roamStart 循环内每段复查 `if (!roamEnabled()) { stopRoam(); return }`（stopRoam 会 goHome 回原位），别把这一轮走完。测试锁：面板不得写 localStorage、悬浮页不得读 localStorage、面板 PUT roam、悬浮页读 settings.roam、循环内复查
 - **dsh-adapter 的会话侧缓存有上限**（sessions/lastRoute 各 200，插入序淘汰）：只在 dispose 清理 = 长期运行每开一个新会话永久多占一条（慢性泄漏）。淘汰无损：sessionInfoOf 下次事件从 session.header 现算重建，落库侧还有 store.lastKnownRoute 兜底。**request/header、request/context 在没有打开的 turn 时只进缓存不发事件**——旧实现发 turn=0 的幽灵 model-route（tracker 静默忽略，纯噪音）

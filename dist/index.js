@@ -567,8 +567,14 @@ export function apply(ctx, config = Config({})) {
                 pushSnapshot();
             }
             if (event.kind === 'task-start') {
-                guard.resetTaskArming();
+                // 不再全局清空 guard 的去重标记：并行任务（多会话/子代理）下会把其它
+                // 在跑任务的标记冲掉 → 重复告警（真实竞态）。改为 task-end 按 key 精准清理。
                 lastAlert = null;
+                pushSnapshot();
+            }
+            if (event.kind === 'task-end') {
+                // 任务结束：只清该任务的去重标记（回收内存；taskKey 唯一，不误伤并行任务）。
+                guard.clearTask(`${event.task.sessionId}:${event.task.turn}`);
                 pushSnapshot();
             }
             if (event.kind === 'stream-activity' ||
