@@ -1547,7 +1547,7 @@ export function panelPageHTML(): string {
           <div class="set-card span-2 tone-blue" id="card-appearance">
             <div class="set-head">
               <span class="set-ico">🤖</span>
-              <div><h2>伴侣外观<button class="info" type="button" data-tip="皮肤决定形象、状态文案与台词口吻（换装即换性格）；不透明度与缩放同时作用于伴侣窗口。点击穿透 / 隐私模式 / 随 DSH 启动在下方「高级设置」里。">i</button></h2><p>改动即时生效，无需保存</p></div>
+              <div><h2>伴侣外观<button class="info" type="button" data-tip="皮肤决定形象、状态文案与台词口吻（换装即换性格）；不透明度与缩放同时作用于伴侣窗口。点击穿透 / 隐私模式 / 随 DSH 启动就在本卡下方。">i</button></h2><p>改动即时生效，无需保存</p></div>
             </div>
             <div class="set-list">
               <div class="set-item">
