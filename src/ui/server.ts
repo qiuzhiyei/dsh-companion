@@ -14,6 +14,8 @@ import { createHash } from 'node:crypto'
 import { panelPageHTML, petPageHTML } from './pages.js'
 import type { SkinRegistry } from './skins.js'
 import type {
+  AlertEntry,
+  BalanceSeries,
   BalanceSummary,
   BalanceView,
   ExportFormat,
@@ -60,6 +62,10 @@ export interface PetServerDeps {
   balance(force: boolean): Promise<BalanceView>
   /** 余额日/月聚合（消耗 = 首末快照下降量；充值单列）。 */
   balanceSummary(period: 'today' | 'month'): Promise<BalanceSummary>
+  /** 余额趋势（按本地日取当天最后一个快照；面板 sparkline）。 */
+  balanceSeries(days: number): Promise<BalanceSeries>
+  /** 告警记录（预算/余额告警 + 失败/中断任务，新的在前）。 */
+  alerts(limit: number): AlertEntry[]
   /** 数据保留预览（当前保留期 + 会删掉多少条 + 库内总数）。 */
   retention(): Promise<RetentionView>
   /** 立即清理过期任务（不可逆）；返回删除条数与库内剩余总数。 */
@@ -269,6 +275,14 @@ export class PetServer {
     if (path === '/api/balance/summary' && method === 'GET') {
       const period = url.searchParams.get('period') === 'month' ? 'month' : 'today'
       return json(res, await this.deps.balanceSummary(period))
+    }
+    if (path === '/api/balance/series' && method === 'GET') {
+      const days = clampInt(url.searchParams.get('days'), 1, 365, 30)
+      return json(res, await this.deps.balanceSeries(days))
+    }
+    if (path === '/api/alerts' && method === 'GET') {
+      const limit = clampInt(url.searchParams.get('limit'), 1, 20, 5)
+      return json(res, { alerts: this.deps.alerts(limit) })
     }
     // ---- 数据保留：先预览（会删多少条）再清理，清理不可逆 ----
     if (path === '/api/retention' && method === 'GET') {

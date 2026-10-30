@@ -327,3 +327,65 @@ test('悬浮页：滚轮缩放必须按住 Ctrl（点击穿透下滚轮会转发
   const nextAt = body.indexOf('snap.settings.scale +')
   assert.ok(ctrlAt > 0 && nextAt > ctrlAt, '修饰键判断必须在改 scale 之前')
 })
+
+test('悬浮页：深海终端 HUD（气泡变体 / 状态映射 / 余额举牌）', () => {
+  const html = petPageHTML()
+  // 气泡结构：图标 + 标题 + 单行 meta + 操作区（最多两行）
+  for (const id of ['bubble', 'bubbleMark', 'bubbleTitle', 'bubbleMeta', 'bubbleActions', 'bubbleDismiss', 'restActions']) {
+    assert.ok(html.includes('id="' + id + '"'), '缺气泡锚点 ' + id)
+  }
+  assert.ok(html.includes('-webkit-line-clamp: 2'), '气泡 meta 最多两行（设计稿）')
+  assert.ok(html.includes('min(320px'), '气泡最宽 320（设计稿）')
+  assert.ok(/#bubble \{[^}]*pointer-events: none/.test(html), '气泡纯展示，不吃鼠标（按钮单独收回交互）')
+  // 状态映射：开始 2s / 运行中常驻状态 / 完成 5s / 失败常驻 / 待机收起
+  assert.ok(html.includes('startUntil = Date.now() + 2000'), '任务启动气泡停留 2 秒')
+  assert.ok(html.includes("setBubble('info', 'running'"), '运行中应常驻状态气泡（用户反馈补回）')
+  assert.ok(html.includes('snap.label ||'), '运行气泡标题用宿主状态文案')
+  assert.ok(html.includes('fmtClock(Date.now() - task.startTime)'), '运行气泡显示实时计时')
+  assert.ok(html.includes('fmtTokens(task.tokens.totalTokens)'), '运行气泡显示实时 Token')
+  assert.ok(html.includes('if (snap.task) renderHud()'), 'tick 每秒刷新运行状态')
+  assert.ok(html.includes('flashUntil = Date.now() + 5000'), '完成气泡停留 5 秒')
+  assert.ok(html.includes('flashPersist = true'), '失败气泡应常驻到点掉（不自动消失）')
+  assert.ok(html.includes('setBubble(null)'), '待机/纯宠物模式要收起气泡')
+  assert.ok(html.includes("ok ? 'ok' :"), '完成用 ok 变体')
+  // 隐私模式只留状态词
+  assert.ok(html.includes('function privateMode'), '缺隐私模式判定')
+  assert.ok(html.includes("'任务开始'") && html.includes("'已完成'"), '隐私模式应退化为状态词')
+  // 余额举牌：设计稿标签/金额/币种/副标题 + 今日消耗
+  for (const cls of ['p-label', 'p-amount', 'p-amt', 'p-cur', 'p-sub']) {
+    assert.ok(html.includes(cls), '缺举牌样式 ' + cls)
+  }
+  assert.ok(html.includes('/api/balance/summary?period=today'), '举牌副标题应读今日消耗')
+  assert.ok(html.includes('bg 210px') || html.includes('width: 210px'), '举牌宽度按设计稿 210')
+  assert.ok(html.includes('#placard[data-state="warn"]'), '余额低于阈值应有警示态')
+  // 呼吸动画：待机 3.2s、任务中 1.4s；减少动态效果时关掉
+  assert.ok(html.includes('@keyframes pet-breathe'), '缺待机呼吸')
+  assert.ok(html.includes("pet.classList.toggle('is-working'"), '任务中应加快呼吸')
+  assert.ok(html.includes('#pet.is-working img { animation-duration: 1.4s; }'), '任务中呼吸 1.4s')
+  assert.ok(html.includes('prefers-reduced-motion'), '应尊重系统减少动态效果')
+  // 浏览器/iframe 模式气泡回到文档流（否则绝对定位气泡会挂到视口外）
+  assert.ok(html.includes('body.browser #stage #bubble'), '浏览器模式气泡应在文档流里')
+  assert.ok(html.includes('position: relative; top: auto; left: auto; transform: none'), '浏览器模式气泡定位重置')
+  // 余额举牌避让头部：打开时舞台整体下移、气泡暂时收起；关闭后恢复 HUD
+  assert.ok(html.includes('body.electron.board-open #stage { padding-top: 100px; }'), '举牌打开时应下移舞台')
+  assert.ok(html.includes('let boardOpen = false'), '缺 boardOpen 状态')
+  assert.ok(html.includes("document.body.classList.add('board-open')"), '举牌时应加 board-open')
+  assert.ok(html.includes("document.body.classList.remove('board-open')"), '收牌时应移除 board-open')
+  assert.ok(html.includes('if (boardOpen) { setBubble(null); return }'), '举牌期间应收起气泡')
+})
+
+test('悬浮页：显示伴侣即时生效（SSE → IPC，不等 5s 看门狗）', async () => {
+  const html = petPageHTML()
+  assert.ok(html.includes('function syncShowPet'), '缺即时同步函数')
+  assert.ok(html.includes('window.petShell.setVisible'), '页面应调用 setVisible IPC')
+  assert.ok(html.includes('syncShowPet()'), 'render 应触发同步')
+  assert.ok(html.includes('lastShowPet'), '应记住上次下发值，避免重复 IPC')
+  const preload = await readFile(join(ROOT, 'electron', 'preload.cjs'), 'utf8')
+  const main = await readFile(join(ROOT, 'electron', 'main.cjs'), 'utf8')
+  assert.ok(preload.includes("ipcRenderer.send('pet-shell:set-visible'"), 'preload 暴露 setVisible')
+  assert.ok(main.includes("ipcMain.on('pet-shell:set-visible'"), 'main 处理 set-visible')
+  const body = main.slice(main.indexOf("ipcMain.on('pet-shell:set-visible'"))
+  assert.ok(body.slice(0, 700).includes('win.show()'), '显示应立刻 show')
+  assert.ok(body.slice(0, 700).includes('win.hide()'), '隐藏应立刻 hide')
+  assert.ok(body.slice(0, 700).includes('clampBounds'), '显示前应夹回屏幕')
+})

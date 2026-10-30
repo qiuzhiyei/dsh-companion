@@ -1,7 +1,7 @@
 {
   "name": "@qiuzhiyei/dsh-companion",
-  "version": "1.0.4",
-  "description": "DSH 伴侣 — DeepSeek Harness 伴侣插件：用量统计、桌宠陪伴、预算告警，以及对宿主界面的持续增强。",
+  "version": "2.0.0",
+  "description": "DSH 伴侣 2.0 — DeepSeek Harness 伴侣插件：深海终端统计面板、桌宠 HUD、推理等级、预算/余额告警与会话管理。",
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",

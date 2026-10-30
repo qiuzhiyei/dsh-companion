@@ -1,55 +1,93 @@
 <div align="center">
 
-# 🐳 DSH 伴侣
+<img src="icon.svg" width="84" alt="DSH 伴侣" />
+
+# DSH 伴侣 2.0
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的伴侣插件
 
-桌宠 · 用量统计 · 费用估算 · 预算告警 · 界面增强
+桌宠 · 实时状态 · 用量统计 · 预算/余额 · 会话管理
 
-[English](README.en.md) · [npm](https://www.npmjs.com/package/@qiuzhiyei/dsh-companion)
+[English](README.en.md) · [安装](#安装) · [使用](#使用) · [开发](#开发)
 
 ![npm](https://img.shields.io/npm/v/@qiuzhiyei/dsh-companion?label=npm&color=cb3837)
-![ci](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
-
-<img src="docs/images/pet.png" width="180" alt="鲸鱼娘桌宠" />
+![CI](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
 
 </div>
 
+## 2.0.0 更新
+
+- **深海终端 UI**：统计面板、伴侣 HUD、侧栏角标、图标全部重做
+- **推理等级**：在输入栏直接切换模型思考档位（声呐能量条）
+- **余额 / 峰谷**：移到 DSH 左下角角标，随时可见
+- **面板增强**：任务详情抽屉、告警记录、30 天余额趋势、界面字号
+- **会话管理**：彻底删除会话、批量清理（宿主只提供归档）
+- **运行状态**：任务开始时显示任务名，运行中常驻状态气泡
+
 ## 功能
 
-- 🐳 **桌宠**：随任务状态换表情，可摸、可拖，闲下来自己散步
-- 👗 **5 套皮肤**：JK / 秘书 / 女警 / 中华娘 / 旗袍，表情与台词口吻一起换
-- 📊 **统计面板**：Token、任务数、成功率、时长、费用、缓存命中，都带环比
-- 💰 **费用估算**：DeepSeek 官方计价，高峰 / 闲时分档，缓存命中单独计价
-- 🚨 **预算告警**：单任务 / 每日上限，Token 或费用，触顶弹气泡和系统通知
-- 🐳 **余额台账**：DeepSeek 账号余额采样，今日 / 本月消耗，余额不足自动告警
-- 🗂 **历史与导出**：按模型 / 状态 / 日期 / 关键词筛选，导出 CSV / JSON
-- 🧹 **会话管理**：彻底删除会话（宿主只提供归档）
-- 🗄 **数据保留**：历史任务只留最近 N 个月，过期自动清理（默认永久保留，手动清理前先看条数再确认）
-- ⏰ **久坐提醒**：坐够 N 分钟提醒起来走走
-- 🖥 **桌面悬浮窗**：透明置顶、点击穿透、真托盘
+- **桌宠**：开始 / 思考 / 输出 / 收尾 / 完成 / 失败都有对应动作和状态气泡；可摸、可拖、可自由活动
+- **5 套皮肤**：JK / 秘书 / 女警 / 中华娘 / 旗袍，表情和台词口吻一起换
+- **左下角角标**：当前任务、今日 Token、运行状态、余额、高峰/闲时；点击打开统计面板
+- **统计面板**：Token、费用、缓存命中、成功率、时长、图表、模型/项目排行、告警记录
+- **预算与余额**：单任务 / 每日预算告警；DeepSeek 账号余额采样与低余额提醒
+- **会话管理**：彻底删除会话（不可恢复），也可批量清理
+- **数据保留**：可设置只保留最近 N 个月，默认永久保留
+- **桌面体验**：透明悬浮窗、点击穿透、真托盘、久坐提醒、隐私模式、纯宠物模式
 
 ## 安装
 
-**桌面版**：插件管理器 → 安装插件 → 输入 `@qiuzhiyei/dsh-companion` → 启用 → 完全退出 DSH 重开。
+### 方式一：插件管理器（推荐）
 
-**命令行**：
+DSH → 插件管理器 → 安装插件 → 输入：
 
-```sh
-dsh plugin --profile <你的 profile> add @qiuzhiyei/dsh-companion
+```text
+@qiuzhiyei/dsh-companion
 ```
 
-> 装完要在插件管理器里**启用**，再完全退出重开 DSH。
-> 桌宠首次启动会自动下载运行时（约 150 MB，国内镜像），不用手动装 electron。
+安装后**启用**插件，再**完全退出并重开 DSH**。
+
+### 方式二：命令行
+
+```sh
+dsh plugin --profile desktop add @qiuzhiyei/dsh-companion
+```
+
+把 `desktop` 换成你的 profile 名。装完同样要在插件管理器里启用，再完全退出重开 DSH。
+
+### 升级
+
+```sh
+dsh plugin --profile desktop add @qiuzhiyei/dsh-companion@latest
+```
+
+然后重启 DSH。
+
+> 桌宠首次启动会自动下载 Electron 运行时（约 150 MB，国内镜像）。下载失败不影响面板和统计，伴侣会先以浏览器模式运行。
+
+## 使用
+
+- **左下角角标**：查看当前任务、今日用量、余额和峰谷；点击打开完整面板。
+- **桌宠**：左键摸头、拖拽移动、双击看余额；Ctrl + 滚轮缩放。
+- **面板**：任务 / 统计 / 会话 / 设置四个页签；点任务行打开详情抽屉。
+- **推理等级**：点输入栏模型名旁的当前档位，拖动声呐条切换思考强度。
+- **设置**：外观、行为、预算、余额、数据保留都在面板「设置」里；界面字号支持 90–110%。
+
+## 数据与隐私
+
+- 任务、设置、余额快照都只保存在本机 `~/.dsh/dsh-companion`。
+- 不保存对话正文，只记录任务级元数据（项目、模型、Token、费用、工具计数）。
+- 隐私模式会隐藏任务名、模型和金额；纯宠物模式只保留动画。
 
 ## 开发
 
 ```sh
-pnpm install && pnpm run build
+pnpm install
+pnpm run build
 pnpm test
 ```
 
-架构决策与踩过的坑见 [AGENTS.md](AGENTS.md)，发版流程见 [npm发布.md](npm发布.md)。
+架构决策与踩坑记录见 [AGENTS.md](AGENTS.md)。
 
 ## License
 

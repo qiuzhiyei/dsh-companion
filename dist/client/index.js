@@ -33,6 +33,8 @@ const CONFIRM_ATTR = 'data-dsh-companion-delete-confirm';
 const TOAST_ATTR = 'data-dsh-companion-toast';
 /** 角标轮询发现过的服务地址，删除会话请求复用（空则重新发现）。 */
 let cachedServerUrl = '';
+let balanceInfo = null;
+let balanceFetchedAt = 0;
 const LS_PORT_KEY = 'dsh-companion.badge-port';
 const PORT_BASE = 17573;
 const PORT_RANGE = 10;
@@ -40,15 +42,25 @@ const POLL_MS = 5000;
 const DISCOVER_MS = 15000;
 /** 工作中状态的呼吸点颜色（空闲无点）。 */
 const STATE_TONE = {
-    casting: 'var(--dsw-alias-accent, #4f8cff)',
-    waiting: 'var(--dsw-alias-accent, #4f8cff)',
-    hooked: '#37b26c',
-    reeling: '#e0a23a',
-    done: '#37b26c',
-    error: '#e0564f',
-    interrupted: '#e0a23a',
-    blocked: '#e0a23a',
+    casting: '#46e5c3',
+    waiting: '#46e5c3',
+    hooked: '#46e5c3',
+    reeling: '#f0b64a',
+    done: '#46e5c3',
+    error: '#ff7a7a',
+    interrupted: '#f0b64a',
+    blocked: '#f0b64a',
 };
+/** 侧栏角标里的鲸鱼背鳍标记（设计稿 04：识别元素只有背鳍与眼睛）。 */
+const FIN_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+    '<path d="M2 12c2.6 0 3.6-1.4 5.1-3.4C8.7 6.3 9.8 4 12 4c1.2 0 2 .7 2 2 0 3.6-3.2 6-7 6H2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>' +
+    '<circle cx="12.2" cy="5.6" r=".8" fill="currentColor"/></svg>';
+/** 与面板/计价卡同口径：UTC 16:30–00:30 为闲时（北京 00:30–08:30）。 */
+function isOffPeakNow() {
+    const d = new Date();
+    const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
+    return minutes >= 16 * 60 + 30 || minutes < 30;
+}
 function fmtTokens(n) {
     if (!Number.isFinite(n) || n <= 0)
         return '0';
@@ -85,65 +97,130 @@ function ensureStyle() {
     const style = document.createElement('style');
     style.setAttribute('data-dsh-plugin', 'dsh-companion');
     style.textContent = [
-        /* ---- 角标（单行大字） ---- */
+        /* ---- 侧栏角标（设计稿 04：像一张本来就存在的卡片，而不是挂件） ---- */
         `[${BADGE_ATTR}] {`,
-        '  display: flex; align-items: center; flex: none;',
-        '  padding: 8px 12px; margin: 4px 10px 2px;',
-        '  border-radius: 10px; cursor: pointer; user-select: none;',
-        '  font-size: 12px; line-height: 1.4;',
-        '  color: var(--dsw-alias-text-secondary, rgba(128,128,128,.9));',
-        '  background: var(--dsw-alias-bg-elevated, rgba(128,128,128,.06));',
-        '  border: 1px solid var(--dsw-alias-separator-primary, transparent);',
-        '  transition: background .15s ease, color .15s ease, border-color .15s ease;',
+        '  display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px;',
+        '  flex: none; margin: 4px 10px 2px; padding: 10px 11px; border-radius: 11px;',
+        '  cursor: pointer; user-select: none; line-height: 1.4;',
+        '  color: var(--dsw-alias-text-primary, #e8f3f6);',
+        '  background: var(--dsw-alias-bg-elevated, rgba(18,32,42,.9));',
+        '  border: 1px solid var(--dsw-alias-separator-primary, rgba(70,229,195,.22));',
+        '  box-shadow: 0 1px 0 rgba(255,255,255,.03) inset;',
+        '  transition: border-color .15s ease, background .15s ease;',
         '}',
         `[${BADGE_ATTR}]:hover {`,
-        '  color: var(--dsw-alias-text-primary, inherit);',
-        '  background: var(--dsw-alias-bg-hover, rgba(128,128,128,.12));',
-        '  border-color: var(--dsw-alias-separator-strong, rgba(128,128,128,.25));',
+        '  border-color: rgba(70,229,195,.5);',
+        '  background: var(--dsw-alias-bg-hover, rgba(24,42,52,.95));',
         '}',
-        `[${BADGE_ATTR}] .pet-row { display: flex; align-items: center; gap: 8px; }`,
-        `[${BADGE_ATTR}] .pet-emoji { font-size: 16px; line-height: 1; }`,
-        `[${BADGE_ATTR}] .pet-dot {`,
-        '  width: 8px; height: 8px; border-radius: 50%; flex: none;',
-        '  animation: dsh-companion-breath 1.6s ease-in-out infinite;',
+        `[${BADGE_ATTR}] .sb-icon {`,
+        '  width: 24px; height: 24px; flex: none; display: grid; place-items: center;',
+        '  border-radius: 8px; background: rgba(70,229,195,.14); color: #46e5c3;',
         '}',
-        `[${BADGE_ATTR}] .pet-main {`,
-        '  font-size: 14px; font-weight: 600; letter-spacing: .01em; white-space: nowrap;',
-        '  color: var(--dsw-alias-text-primary, inherit);',
+        `[${BADGE_ATTR}] .sb-icon svg { display: block; }`,
+        `[${BADGE_ATTR}] .sb-text { display: grid; gap: 2px; min-width: 0; }`,
+        `[${BADGE_ATTR}] .sb-text b {`,
+        '  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;',
+        '  color: inherit; font-variant-numeric: tabular-nums;',
+        '}',
+        `[${BADGE_ATTR}] .sb-text span {`,
+        '  font-size: 12.5px; color: var(--dsw-alias-text-secondary, #9db4bd);',
+        '  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;',
+        '}',
+        `[${BADGE_ATTR}] .sb-text .sb-foot {`,
+        '  display: flex; align-items: center; gap: 6px; min-width: 0; padding-top: 1px;',
+        '  font-size: 12px; color: var(--dsw-alias-text-secondary, #9db4bd);',
+        '}',
+        `[${BADGE_ATTR}] .sb-text .sb-foot b {`,
+        '  min-width: 0; overflow: hidden; text-overflow: ellipsis;',
+        '  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 12px; font-weight: 500; color: var(--dsw-alias-text-primary, #e8f3f6);',
         '  font-variant-numeric: tabular-nums;',
         '}',
-        `@keyframes dsh-companion-breath {`,
-        '  0%, 100% { opacity: .45; } 50% { opacity: 1; }',
+        `[${BADGE_ATTR}] .sb-text .sb-period {`,
+        '  display: inline-flex; align-items: center; gap: 4px; flex: none; height: 16px; padding: 0 6px;',
+        '  border-radius: 999px; border: 1px solid rgba(240,182,74,.24);',
+        '  background: rgba(240,182,74,.10); color: #f0b64a;',
+        '  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 10px; line-height: 1;',
         '}',
-        /* ---- 完整面板大窗（GUI 内，不跳浏览器） ---- */
+        `[${BADGE_ATTR}] .sb-period i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; flex: none; }`,
+        `[${BADGE_ATTR}] .sb-text .sb-period.is-off {`,
+        '  color: #46e5c3; background: rgba(70,229,195,.08); border-color: rgba(70,229,195,.20);',
+        '}',
+        `[${BADGE_ATTR}] .sb-dot {`,
+        '  width: 7px; height: 7px; border-radius: 50%; flex: none; justify-self: end;',
+        '  animation: dsh-companion-breath 2s ease-in-out infinite;',
+        '}',
+        `[${BADGE_ATTR}] .sb-arrow {`,
+        '  justify-self: end; color: var(--dsw-alias-text-secondary, #7d959e); font-size: 12px; line-height: 1;',
+        '}',
+        `@keyframes dsh-companion-breath {`,
+        '  0%, 100% { opacity: 1; } 50% { opacity: .35; }',
+        '}',
+        /* 宿主浅色主题：角标是深色卡片的浅色变体（与面板的浅色令牌同源）。 */
+        '@media (prefers-color-scheme: light) {',
+        `  [${BADGE_ATTR}] {`,
+        '    background: var(--dsw-alias-bg-elevated, #ffffff);',
+        '    border-color: var(--dsw-alias-separator-primary, #d5dde0);',
+        '    color: var(--dsw-alias-text-primary, #16232b);',
+        '    box-shadow: 0 2px 8px rgba(20,40,55,.07);',
+        '  }',
+        `  [${BADGE_ATTR}]:hover { border-color: #9fc9c0; }`,
+        `  [${BADGE_ATTR}] .sb-icon { background: rgba(20,90,80,.09); color: #0e5c4e; }`,
+        `  [${BADGE_ATTR}] .sb-text span { color: var(--dsw-alias-text-secondary, #5e727a); }`,
+        `  [${BADGE_ATTR}] .sb-text .sb-foot b { color: var(--dsw-alias-text-primary, #16232b); }`,
+        `  [${BADGE_ATTR}] .sb-text .sb-period { color: #a86a00; background: rgba(168,106,0,.08); border-color: rgba(168,106,0,.22); }`,
+        `  [${BADGE_ATTR}] .sb-text .sb-period.is-off { color: #0e8a74; background: rgba(14,138,116,.08); border-color: rgba(14,138,116,.2); }`,
+        '}',
+        /* ---- 完整面板大窗（设计稿窗口：52px 标题栏 + 1280×920 上限） ---- */
         `[${PANEL_ATTR}] {`,
         '  position: fixed; inset: 0; z-index: 10001; display: none;',
-        '  background: rgba(0,0,0,.5);',
-        '  align-items: center; justify-content: center;',
+        '  background: rgba(2,8,11,.72); backdrop-filter: blur(2px);',
+        '  align-items: center; justify-content: center; padding: 2vh 2vw;',
         '}',
         `[${PANEL_ATTR}][data-open="1"] { display: flex; }`,
         `[${PANEL_ATTR}] .pm-box {`,
         '  display: flex; flex-direction: column;',
-        '  width: min(1100px, 94vw); height: min(760px, 90vh);',
-        '  border-radius: 14px; overflow: hidden;',
-        '  background: var(--dsw-alias-bg-base, #f4f6f8);',
-        '  border: 1px solid var(--dsw-alias-separator-strong, rgba(128,128,128,.3));',
-        '  box-shadow: 0 24px 80px rgba(0,0,0,.5);',
+        '  width: min(1280px, 96vw); height: min(920px, 90vh);',
+        '  border-radius: 16px; overflow: hidden; background: #07141c;',
+        '  border: 1px solid rgba(126,197,214,.22);',
+        '  box-shadow: 0 40px 100px rgba(0,0,0,.7), 0 0 0 1px rgba(70,229,195,.04),',
+        '    0 1px 0 rgba(255,255,255,.05) inset;',
         '}',
         `[${PANEL_ATTR}] .pm-head {`,
-        '  display: flex; align-items: center; gap: 10px; padding: 10px 14px;',
-        '  background: var(--dsh-companion-modal-head, var(--dsw-alias-bg-elevated, #20242a));',
-        '  color: var(--dsw-alias-text-primary, #eee);',
+        '  height: 56px; flex: none; display: flex; align-items: center; gap: 10px;',
+        '  padding: 0 12px 0 16px; background: #061119;',
+        '  border-bottom: 1px solid rgba(126,197,214,.13); color: #e8f3f6;',
         '}',
-        `[${PANEL_ATTR}] .pm-title { flex: 1; font-size: 13px; font-weight: 600; }`,
+        `[${PANEL_ATTR}] .pm-icon {`,
+        '  width: 28px; height: 28px; flex: none; display: grid; place-items: center;',
+        '  border: 1px solid rgba(70,229,195,.22); border-radius: 8px;',
+        '  background: rgba(70,229,195,.10); color: #46e5c3;',
+        '}',
+        `[${PANEL_ATTR}] .pm-title { font-size: 15px; font-weight: 600; letter-spacing: .01em; }`,
+        `[${PANEL_ATTR}] .pm-sub {`,
+        '  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #4f6a74;',
+        '}',
+        `[${PANEL_ATTR}] .pm-spacer { flex: 1; }`,
+        `[${PANEL_ATTR}] .pm-live {`,
+        '  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 11px; color: #7d959e; white-space: nowrap;',
+        '}',
         `[${PANEL_ATTR}] .pm-close {`,
-        '  width: 24px; height: 24px; border-radius: 6px; cursor: pointer;',
-        '  display: flex; align-items: center; justify-content: center;',
-        '  color: var(--dsw-alias-text-secondary, rgba(200,200,200,.9));',
-        '  background: transparent; border: none; font-size: 15px; line-height: 1;',
+        '  width: 30px; height: 28px; border-radius: 6px; cursor: pointer;',
+        '  display: grid; place-items: center;',
+        '  color: #7d959e; background: transparent; border: none; padding: 0;',
         '}',
-        `[${PANEL_ATTR}] .pm-close:hover { background: rgba(128,128,128,.2); }`,
-        `[${PANEL_ATTR}] iframe.pm-frame { flex: 1; width: 100%; border: none; background: #f4f6f8; }`,
+        `[${PANEL_ATTR}] .pm-close:hover { background: #8e2f2f; color: #fff; }`,
+        `[${PANEL_ATTR}] .pm-close svg { width: 12px; height: 12px; display: block; }`,
+        `[${PANEL_ATTR}] iframe.pm-frame { flex: 1; width: 100%; border: none; background: #07141c; }`,
+        '@media (max-width: 760px) {',
+        `  [${PANEL_ATTR}] { padding: 0; }`,
+        `  [${PANEL_ATTR}] .pm-box { width: 100vw; height: 100vh; border-radius: 0; border: none; }`,
+        `  [${PANEL_ATTR}] .pm-sub, [${PANEL_ATTR}] .pm-live { display: none; }`,
+        '}',
         /* ---- 删除会话确认弹窗 ---- */
         `[${CONFIRM_ATTR}] {`,
         '  position: fixed; inset: 0; z-index: 10002; display: flex;',
@@ -182,6 +259,85 @@ function ensureStyle() {
         '  color: #fff;',
         '}',
         `[${CONFIRM_ATTR}] button:disabled { opacity: .6; cursor: default; }`,
+        /* ---- 推理等级：官方模型选择器「推理等级」行 → 能量条面板 ---- */
+        '.cr-host { position: fixed; z-index: 10006; width: 322px; max-width: calc(100vw - 16px); }',
+        '.cr-host[hidden] { display: none !important; }',
+        '.cr-panel {',
+        '  --cr-surface: var(--dsw-alias-bg-elevated, #0b1b24);',
+        '  --cr-line: var(--dsw-alias-separator-strong, rgba(126,197,214,.22));',
+        '  --cr-ink: var(--dsw-alias-text-primary, #e8f3f6);',
+        '  --cr-muted: var(--dsw-alias-text-secondary, #9db4bd);',
+        '  --cr-accent: var(--dsw-alias-accent, #46e5c3);',
+        '  color: var(--cr-ink); background: var(--cr-surface);',
+        '  border: 1px solid var(--cr-line); border-radius: 12px;',
+        '  padding: 14px 14px 12px; box-shadow: 0 20px 50px rgba(0,0,0,.42);',
+        '  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);',
+        '  font-family: inherit; font-size: 12px; line-height: 1.5;',
+        '}',
+        '.cr-sub { margin-top: 3px; font-size: 10px; color: var(--cr-muted); line-height: 1.55; }',
+        '.cr-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px;',
+        '  padding-top: 8px; border-top: 1px solid var(--cr-line);',
+        '  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 8.5px; color: var(--cr-muted); }',
+        '.cr-error { color: var(--dsw-alias-state-error-primary, #ff7a7a); }',
+        '.cr-retry { margin-left: 8px; padding: 2px 8px; border: 1px solid var(--cr-line);',
+        '  border-radius: 6px; background: transparent; color: var(--cr-ink); font: inherit;',
+        '  font-size: 10px; cursor: pointer; }',
+        '.cr-retry:hover { border-color: var(--cr-accent); color: var(--cr-accent); }',
+        /* ---- 推理深度 · 声呐深度计（设计稿 02） ---- */
+        '.cr-sonar { padding: 14px 16px 12px; border-radius: 16px; position: relative; }',
+        '.cr-sonar::after { content: ""; position: absolute; right: 30px; bottom: -6px; width: 10px; height: 10px;',
+        '  background: var(--cr-surface); border-right: 1px solid var(--cr-line); border-bottom: 1px solid var(--cr-line);',
+        '  transform: rotate(45deg); }',
+        '.cr-sonar[data-level="off"] { --cr-accent: #8fa0a8; --cr-accent-soft: rgba(143,160,168,.4); }',
+        '.cr-sonar[data-level="low"] { --cr-accent: #37b39c; --cr-accent-soft: rgba(55,179,156,.4); }',
+        '.cr-sonar[data-level="high"] { --cr-accent: #46e5c3; --cr-accent-soft: rgba(70,229,195,.45); }',
+        '.cr-sonar[data-level="max"] { --cr-accent: #a78bfa; --cr-accent-soft: rgba(167,139,250,.45); }',
+        '.cr-sonar-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }',
+        '.cr-sonar-text { min-width: 0; }',
+        '.cr-kicker { font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: var(--cr-muted); }',
+        '.cr-tier { padding-top: 1px; font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 11px; letter-spacing: .16em; color: var(--cr-accent); white-space: nowrap; }',
+        '.cr-sonar-desc { min-height: 15px; margin-top: 7px; font-size: 10.5px; color: var(--cr-muted); line-height: 1.45; }',
+        '.cr-gauge { position: relative; height: 52px; margin-top: 10px; cursor: pointer;',
+        '  touch-action: none; user-select: none; outline: none; }',
+        '.cr-gauge:focus-visible .cr-water { box-shadow: inset 0 0 0 1px var(--cr-accent), 0 0 0 1px var(--cr-accent); }',
+        '.cr-water { position: absolute; left: 0; right: 0; top: 14px; height: 20px; overflow: hidden;',
+        '  border-radius: 999px; background: var(--dsw-alias-bg-hover, rgba(0,0,0,.24));',
+        '  box-shadow: inset 0 1px 3px rgba(0,0,0,.35), inset 0 0 0 1px var(--cr-line), 0 0 18px var(--cr-accent-soft); }',
+        '.cr-water-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 999px 0 0 999px;',
+        '  background: linear-gradient(180deg, rgba(255,255,255,.18), transparent 48%), linear-gradient(90deg, rgba(70,229,195,.3), var(--cr-accent));',
+        '  box-shadow: inset 0 1px 0 rgba(255,255,255,.22);',
+        '  transition: width .3s cubic-bezier(.2,.7,.2,1), background .2s ease; }',
+        '.cr-gauge.is-drag .cr-water-fill, .cr-gauge.is-drag .cr-cursor { transition: none; }',
+        '.cr-water::after { content: ""; position: absolute; top: 0; bottom: 0; width: 48px;',
+        '  background: linear-gradient(90deg, transparent, rgba(255,255,255,.3), transparent);',
+        '  animation: cr-sweep 4.4s linear infinite; }',
+        '@keyframes cr-sweep { 0% { left: -48px; } 100% { left: 100%; } }',
+        '.cr-ticks { position: absolute; left: 0; right: 0; top: 14px; height: 20px; pointer-events: none; }',
+        '.cr-ticks i { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(126,197,214,.14); }',
+        '.cr-major { position: absolute; top: 10px; height: 28px; width: 1px;',
+        '  background: var(--cr-surface); pointer-events: none; }',
+        '.cr-cursor { position: absolute; top: 6px; left: 0; width: 2px; height: 36px; margin-left: -1px;',
+        '  background: var(--cr-accent); box-shadow: 0 0 14px var(--cr-accent);',
+        '  transition: left .3s cubic-bezier(.2,.7,.2,1), background .2s ease; }',
+        '.cr-cursor::before { content: ""; position: absolute; top: -5px; left: 50%; width: 9px; height: 9px;',
+        '  margin-left: -4.5px; background: var(--cr-accent); transform: rotate(45deg);',
+        '  box-shadow: 0 0 14px var(--cr-accent); }',
+        '.cr-cursor::after { content: ""; position: absolute; top: 25px; left: 50%; width: 6px; height: 6px;',
+        '  margin-left: -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px var(--cr-accent); }',
+        '.cr-scale { position: relative; height: 14px; margin-top: 4px;',
+        '  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;',
+        '  font-size: 8.5px; color: var(--cr-muted); }',
+        '.cr-scale span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap;',
+        '  transition: color .18s ease; }',
+        '.cr-scale span.on { color: var(--cr-accent); }',
+        '.cr-sonar .cr-sub { margin-top: 8px; }',
+        '@media (prefers-reduced-motion: reduce) {',
+        '  .cr-water-fill, .cr-cursor { transition: none; }',
+        '  .cr-water::after { animation: none; }',
+        '}',
         /* ---- 轻量 toast ---- */
         `[${TOAST_ATTR}] {`,
         '  position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 10003;',
@@ -258,8 +414,531 @@ async function fetchJson(url) {
         return null;
     }
 }
+/* ---------- 推理等级（官方模型选择器的「推理等级」行 → 能量条面板） ---------- */
+/**
+ * 宿主模型选择器把「推理等级 / Effort」做成 root 菜单里的一行；点它原本会
+ * drill 到宿主自带的档位 pane。这里在捕获阶段接管这一行，换成设计稿的能量条
+ * 面板，写入仍走官方 `connection.api.sessions.selectModel({ reasoningEffort })`。
+ *
+ * 刻意不替换官方模型选择器（不占宿主单实例模型座位槽位），也不直接改宿主
+ * 文件：旧宿主没有 connection/sessions 服务时静默放行，原生菜单照旧可用。
+ * 做法与 dsh-adaptive-reasoning 相同的官方 RPC 路径。
+ */
+const REASONING_ROW_LABELS = ['推理等级', '思考强度', '推理强度', 'Effort', 'Reasoning effort', 'Thinking'];
+const REASONING_LEVEL_NAMES = {
+    off: 'Off',
+    minimal: 'Minimal',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    xhigh: 'Extra high',
+    max: 'Max',
+};
+function mountReasoningControl(ctx) {
+    const getter = ctx.get;
+    if (typeof getter !== 'function')
+        return;
+    const safeGet = (name) => {
+        try {
+            return getter.call(ctx, name);
+        }
+        catch {
+            return undefined;
+        }
+    };
+    const host = document.createElement('div');
+    host.className = 'cr-host';
+    host.setAttribute('data-dsh-plugin', 'dsh-companion');
+    host.setAttribute('data-dsh-part', 'reasoning-panel');
+    host.hidden = true;
+    document.body.appendChild(host);
+    let state = null;
+    const currentSessionId = () => {
+        // 0.2.x：uiSession.current 是主视图的 binding source，value.key 才是会话 id；
+        // sessions.list 的快照只有 ids/byId，没有 current（旧插件口径已失效）。
+        const uiSession = safeGet('uiSession');
+        const binding = uiSession?.current?.value;
+        const fromBinding = binding?.key ?? binding?.sessionId;
+        if (typeof fromBinding === 'string' && fromBinding.length > 0)
+            return fromBinding;
+        const sessions = safeGet('sessions');
+        const legacy = sessions?.list?.getSnapshot?.()?.current;
+        return typeof legacy === 'string' && legacy.length > 0 ? legacy : null;
+    };
+    /** 从 session.models 的目录里找当前 provider/model（与宿主选择器同口径）。 */
+    const currentModel = (directory) => {
+        if (directory === null || directory === undefined || directory.current === null)
+            return null;
+        for (const group of directory.groups || []) {
+            const model = (group.models || []).find((candidate) => candidate.id === directory.current.model);
+            if (group.id === directory.current.provider && model !== undefined) {
+                return { group, model, current: directory.current };
+            }
+        }
+        return null;
+    };
+    const levelName = (effort) => (effort && (effort.name || REASONING_LEVEL_NAMES[String(effort.id)] || String(effort.id))) || '—';
+    const levelTone = (effort) => {
+        const id = String(effort?.id ?? '').toLowerCase();
+        if (id === 'off' || id === 'none')
+            return 'off';
+        if (id === 'minimal' || id === 'low')
+            return 'low';
+        if (id === 'max' || id === 'xhigh')
+            return 'max';
+        return 'high';
+    };
+    const levelDescription = (effort) => {
+        if (effort?.description)
+            return String(effort.description);
+        const id = String(effort?.id ?? '').toLowerCase();
+        if (id === 'off' || id === 'none')
+            return '关闭推理 · 最快，也最省';
+        if (id === 'minimal' || id === 'low')
+            return '轻量推理 · 更快';
+        if (id === 'max' || id === 'xhigh')
+            return '最高档 · 推理更深，也更慢';
+        return '深度推理 · 速度与质量的平衡';
+    };
+    const close = () => {
+        if (state === null)
+            return;
+        state = null;
+        host.hidden = true;
+        host.textContent = '';
+        document.removeEventListener('keydown', onKey, true);
+    };
+    /** 把面板贴在锚点上方/原位；再夹进视口。 */
+    const position = (rect) => {
+        host.style.visibility = 'hidden';
+        host.style.left = '0px';
+        host.style.top = '0px';
+        const w = host.offsetWidth || 322;
+        const h = host.offsetHeight || 210;
+        const anchorRight = state?.placeAbove === true && rect.right !== undefined;
+        let left = anchorRight ? rect.right - w : rect.left;
+        let top = state?.placeAbove === true ? rect.top - h - 14 : rect.top;
+        left = Math.min(Math.max(8, left), Math.max(8, window.innerWidth - w - 8));
+        top = Math.min(Math.max(8, top), Math.max(8, window.innerHeight - h - 8));
+        host.style.left = Math.round(left) + 'px';
+        host.style.top = Math.round(top) + 'px';
+        host.style.visibility = '';
+    };
+    const choose = (effort) => {
+        if (state === null || state.busy)
+            return;
+        const selection = currentModel(state.directory);
+        if (selection === null)
+            return;
+        const currentEffort = selection.current.reasoningEffort ?? selection.model.reasoning?.defaultEffort;
+        if (effort.id === currentEffort) {
+            close();
+            return;
+        }
+        state.busy = true;
+        state.error = '';
+        render();
+        const mode = state.mode;
+        Promise.resolve()
+            .then(() => {
+            if (state === null)
+                return null;
+            if (mode === 'directory') {
+                const directory = state.live || state.models.directoryFor(state.sessionId);
+                state.live = directory;
+                return directory.select({
+                    provider: selection.current.provider,
+                    model: selection.current.model,
+                    reasoningEffort: String(effort.id),
+                });
+            }
+            return state.api.sessions.selectModel({
+                sessionId: state.sessionId,
+                provider: selection.current.provider,
+                model: selection.current.model,
+                reasoningEffort: String(effort.id),
+            });
+        })
+            .then((response) => {
+            if (state === null)
+                return;
+            const ok = mode === 'directory'
+                ? response !== null && response !== undefined && response.ok === true
+                : !!(response && response.result && response.result.ok === true);
+            if (!ok) {
+                state.busy = false;
+                state.error =
+                    response?.error?.message ||
+                        response?.result?.error?.message ||
+                        '无法更新推理等级';
+                render();
+                return;
+            }
+            close();
+        })
+            .catch((error) => {
+            if (state === null)
+                return;
+            state.busy = false;
+            state.error = error instanceof Error ? error.message : String(error);
+            render();
+        });
+    };
+    const paint = (index) => {
+        if (state === null || state.ui === null)
+            return;
+        const ui = state.ui;
+        const efforts = ui.efforts;
+        const bounded = Math.max(0, Math.min(efforts.length - 1, index));
+        const pct = efforts.length <= 1 ? 100 : (bounded / (efforts.length - 1)) * 100;
+        state.preview = bounded;
+        ui.panel.setAttribute('data-level', levelTone(efforts[bounded]));
+        ui.tier.textContent = levelName(efforts[bounded]).toUpperCase();
+        ui.desc.textContent = levelDescription(efforts[bounded]);
+        ui.fill.style.width = pct + '%';
+        ui.cursor.style.left = pct + '%';
+        ui.gauge.setAttribute('aria-valuenow', String(bounded));
+        ui.gauge.setAttribute('aria-valuetext', levelName(efforts[bounded]));
+        for (let i = 0; i < ui.labels.length; i += 1) {
+            ui.labels[i].classList.toggle('on', i === bounded);
+        }
+    };
+    const render = () => {
+        if (state === null)
+            return;
+        host.textContent = '';
+        state.ui = null;
+        const selection = currentModel(state.directory);
+        const reasoning = selection?.model?.reasoning;
+        const efforts = Array.isArray(reasoning?.efforts) ? reasoning.efforts : [];
+        const effective = selection?.current?.reasoningEffort ?? reasoning?.defaultEffort;
+        const activeIndex = efforts.findIndex((effort) => effort.id === effective);
+        const active = activeIndex >= 0 ? efforts[activeIndex] : null;
+        const panel = el('div', 'cr-panel cr-sonar');
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-label', '推理等级');
+        panel.setAttribute('aria-busy', state.busy ? 'true' : 'false');
+        panel.setAttribute('data-level', active ? levelTone(active) : 'high');
+        const head = el('div', 'cr-sonar-head');
+        const text = el('div', 'cr-sonar-text');
+        text.appendChild(el('div', 'cr-kicker', 'REASONING · 推理等级'));
+        const desc = el('div', 'cr-sonar-desc', active ? levelDescription(active) : '越高越慢，也越贵。');
+        text.appendChild(desc);
+        head.appendChild(text);
+        const tier = el('span', 'cr-tier', active ? levelName(active).toUpperCase() : effective ? String(effective).toUpperCase() : '—');
+        head.appendChild(tier);
+        panel.appendChild(head);
+        if (state.directory === null) {
+            panel.appendChild(el('div', 'cr-sub', state.busy ? '正在更新…' : '正在读取模型能力…'));
+            if (state.error) {
+                const err = el('div', 'cr-sub cr-error', state.error);
+                const retry = el('button', 'cr-retry', '重试');
+                retry.type = 'button';
+                retry.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    load();
+                });
+                err.appendChild(retry);
+                panel.appendChild(err);
+            }
+        }
+        else if (selection === null) {
+            desc.textContent = '当前会话没有可读取的模型。';
+        }
+        else if (efforts.length === 0) {
+            desc.textContent = '当前模型没有可调推理等级。';
+        }
+        else {
+            const gauge = el('div', 'cr-gauge');
+            gauge.setAttribute('role', 'slider');
+            gauge.setAttribute('tabindex', '0');
+            gauge.setAttribute('aria-label', '推理等级');
+            gauge.setAttribute('aria-valuemin', '0');
+            gauge.setAttribute('aria-valuemax', String(efforts.length - 1));
+            gauge.setAttribute('aria-valuenow', String(activeIndex >= 0 ? activeIndex : 0));
+            gauge.setAttribute('aria-valuetext', active ? levelName(active) : '—');
+            const water = el('div', 'cr-water');
+            const fill = el('i', 'cr-water-fill');
+            water.appendChild(fill);
+            gauge.appendChild(water);
+            const ticks = el('div', 'cr-ticks');
+            for (let i = 0; i <= 16; i += 1) {
+                const tick = el('i', '');
+                tick.style.left = (i / 16) * 100 + '%';
+                ticks.appendChild(tick);
+            }
+            gauge.appendChild(ticks);
+            for (let i = 1; i < efforts.length - 1; i += 1) {
+                const major = el('span', 'cr-major');
+                major.style.left = (i / (efforts.length - 1)) * 100 + '%';
+                gauge.appendChild(major);
+            }
+            const cursor = el('span', 'cr-cursor');
+            gauge.appendChild(cursor);
+            panel.appendChild(gauge);
+            const scale = el('div', 'cr-scale');
+            const labels = [];
+            efforts.forEach((effort, index) => {
+                const label = el('span', 'cr-scale-label', levelName(effort));
+                const pct = efforts.length <= 1 ? 100 : (index / (efforts.length - 1)) * 100;
+                label.style.left = pct + '%';
+                if (index === 0) {
+                    label.style.left = '0%';
+                    label.style.transform = 'none';
+                }
+                if (index === efforts.length - 1) {
+                    label.style.left = 'auto';
+                    label.style.right = '0%';
+                    label.style.transform = 'none';
+                }
+                scale.appendChild(label);
+                labels.push(label);
+            });
+            panel.appendChild(scale);
+            state.ui = { panel, efforts, fill, cursor, tier, desc, gauge, labels };
+            paint(activeIndex >= 0 ? activeIndex : 0);
+            let dragging = false;
+            const indexAt = (clientX) => {
+                const rect = gauge.getBoundingClientRect();
+                const ratio = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
+                const bounded = Math.max(0, Math.min(1, ratio));
+                return Math.round(bounded * (efforts.length - 1));
+            };
+            gauge.addEventListener('pointerdown', (event) => {
+                if (state === null || state.busy)
+                    return;
+                dragging = true;
+                gauge.classList.add('is-drag');
+                try {
+                    gauge.setPointerCapture(event.pointerId);
+                }
+                catch {
+                    // 合成事件在个别环境没有 active pointer；拖动仍可用。
+                }
+                paint(indexAt(event.clientX));
+                gauge.focus();
+                event.preventDefault();
+            });
+            gauge.addEventListener('pointermove', (event) => {
+                if (!dragging || state === null)
+                    return;
+                paint(indexAt(event.clientX));
+            });
+            const finish = (event) => {
+                if (!dragging || state === null)
+                    return;
+                dragging = false;
+                gauge.classList.remove('is-drag');
+                const index = indexAt(event.clientX);
+                paint(index);
+                const effort = state.ui?.efforts[index];
+                if (effort !== undefined)
+                    choose(effort);
+            };
+            gauge.addEventListener('pointerup', finish);
+            gauge.addEventListener('pointercancel', () => {
+                dragging = false;
+                gauge.classList.remove('is-drag');
+            });
+            gauge.addEventListener('keydown', (event) => {
+                if (state === null || state.busy)
+                    return;
+                const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+                if (!keys.includes(event.key))
+                    return;
+                const current = state.preview;
+                let next = current;
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+                    next = Math.max(0, current - 1);
+                else if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
+                    next = Math.min(efforts.length - 1, current + 1);
+                else if (event.key === 'Home')
+                    next = 0;
+                else if (event.key === 'End')
+                    next = efforts.length - 1;
+                event.preventDefault();
+                paint(next);
+                choose(efforts[next]);
+            });
+            if (state.error)
+                panel.appendChild(el('div', 'cr-sub cr-error', state.error));
+        }
+        const foot = el('div', 'cr-foot');
+        foot.appendChild(el('span', '', '仅影响之后的请求'));
+        foot.appendChild(el('span', '', state.busy ? '更新中…' : 'Esc 关闭'));
+        panel.appendChild(foot);
+        host.appendChild(panel);
+        host.hidden = false;
+        position(state.rect);
+    };
+    const load = () => {
+        if (state === null)
+            return;
+        const token = ++state.token;
+        const mode = state.mode;
+        const sessionId = state.sessionId;
+        state.directory = null;
+        state.error = '';
+        state.busy = true;
+        render();
+        const read = async () => {
+            if (state === null)
+                return null;
+            if (mode === 'directory') {
+                const directory = state.models.directoryFor(sessionId);
+                state.live = directory;
+                await directory.load();
+                return { ok: true, value: directory.store.getSnapshot() };
+            }
+            const response = await state.api.sessions.models({ sessionId });
+            if (!response || !response.result || response.result.ok !== true) {
+                return { ok: false, error: response?.result?.error };
+            }
+            return { ok: true, value: response.result.value };
+        };
+        Promise.resolve()
+            .then(read)
+            .then((result) => {
+            if (state === null || state.token !== token)
+                return;
+            state.busy = false;
+            if (!result || result.ok !== true) {
+                state.error = result?.error?.message || '无法读取模型能力';
+                render();
+                return;
+            }
+            state.directory = result.value;
+            render();
+            requestAnimationFrame(() => {
+                if (state === null)
+                    return;
+                host.querySelector('.cr-gauge')?.focus();
+            });
+        })
+            .catch((error) => {
+            if (state === null || state.token !== token)
+                return;
+            state.busy = false;
+            state.error = error instanceof Error ? error.message : String(error);
+            render();
+        });
+    };
+    const onKey = (event) => {
+        if (state === null)
+            return;
+        if (event.key !== 'Escape')
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+    };
+    /** 解析当前会话 + 当前宿主可用的模型目录服务（0.2.x directory / 旧 connection）。 */
+    const resolveContext = () => {
+        const sessionId = currentSessionId();
+        if (sessionId === null)
+            return null;
+        const sessions = safeGet('sessions');
+        try {
+            if (sessions && typeof sessions.subagentAddress === 'function' && sessions.subagentAddress(sessionId) !== undefined) {
+                return null; // 子代理会话不提供模型/档位选择，交给宿主原生逻辑
+            }
+        }
+        catch {
+            return null;
+        }
+        const modelDirectories = safeGet('modelDirectories');
+        const connection = safeGet('connection');
+        const legacyApi = connection?.api?.sessions ? connection.api : null;
+        const directoryMode = !!(modelDirectories && typeof modelDirectories.directoryFor === 'function');
+        if (!directoryMode && legacyApi === null)
+            return null;
+        return {
+            sessionId,
+            mode: directoryMode ? 'directory' : 'legacy',
+            models: modelDirectories,
+            api: legacyApi,
+        };
+    };
+    const openAt = (rect, context, placeAbove = false) => {
+        if (context === null)
+            return;
+        state = {
+            sessionId: context.sessionId,
+            mode: context.mode,
+            models: context.models,
+            api: context.api,
+            live: null,
+            rect,
+            placeAbove,
+            directory: null,
+            busy: true,
+            error: '',
+            token: 0,
+            preview: 0,
+            ui: null,
+        };
+        render();
+        load();
+        document.addEventListener('keydown', onKey, true);
+    };
+    const onClick = (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target === null)
+            return;
+        if (host.contains(target))
+            return;
+        if (state !== null) {
+            close();
+            return;
+        }
+        // 设计稿 02 的入口：宿主模型触发器里的「当前档位」小字。
+        // 点它直接开声呐面板；点模型名仍然开官方模型菜单。
+        const effortChip = target.closest('[class*="triggerEffort"]');
+        if (effortChip instanceof HTMLElement && effortChip.getBoundingClientRect().width > 0) {
+            const context = resolveContext();
+            if (context === null)
+                return;
+            event.preventDefault();
+            event.stopPropagation();
+            const box = effortChip.getBoundingClientRect();
+            // 设计稿里 popover 悬在整条输入栏上方，而不是只压在档位小字上。
+            const seat = effortChip.closest('[data-composer-seat]');
+            const seatRect = seat instanceof HTMLElement ? seat.getBoundingClientRect() : null;
+            openAt({
+                left: box.left,
+                top: seatRect?.top ?? box.top,
+                right: seatRect !== null ? seatRect.right - 56 : box.right,
+            }, context, true);
+            return;
+        }
+        const row = target.closest('[role="menuitem"]');
+        if (!(row instanceof HTMLElement))
+            return;
+        const menu = row.closest('[role="menu"]');
+        if (!(menu instanceof HTMLElement))
+            return;
+        const text = (row.textContent || '').trim();
+        if (!REASONING_ROW_LABELS.some((label) => text === label || text.startsWith(label)))
+            return;
+        const context = resolveContext();
+        if (context === null)
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        const box = menu.getBoundingClientRect();
+        menu.style.display = 'none';
+        openAt({ left: box.left, top: box.top }, context);
+    };
+    document.addEventListener('click', onClick, true);
+    ctx.effect(() => () => {
+        close();
+        document.removeEventListener('click', onClick, true);
+        host.remove();
+    });
+}
 /* ---------- 角标渲染 ---------- */
-function renderBadge(container, state, stats) {
+function renderBadge(container, state, stats, balance) {
     container.textContent = '';
     if (state === null) {
         container.style.display = 'none';
@@ -268,32 +947,108 @@ function renderBadge(container, state, stats) {
     container.style.display = '';
     const working = state.task !== null && state.task !== undefined;
     const today = stats?.totalTokens ?? 0;
-    const row = el('div', 'pet-row');
-    if (working) {
-        const dot = el('span', 'pet-dot');
-        dot.style.background = STATE_TONE[state.state] ?? STATE_TONE.hooked;
-        row.appendChild(dot);
-    }
-    row.appendChild(el('span', 'pet-emoji', '🤖'));
-    const main = el('span', 'pet-main', working && state.task
+    const icon = el('span', 'sb-icon');
+    icon.innerHTML = FIN_SVG;
+    container.appendChild(icon);
+    const text = el('span', 'sb-text');
+    const main = el('b', '', working && state.task
         ? `${fmtTokens(state.task.tokens.totalTokens)} token`
         : `今日 ${fmtTokens(today)} token`);
-    row.appendChild(main);
-    container.appendChild(row);
-    const taskLine = working && state.task
-        ? `${state.label} · 已 ${fmtElapsed(state.task.startTime, Date.now())} · 今日 ${today.toLocaleString()} tokens`
-        : `今日 ${today.toLocaleString()} tokens · ${stats?.tasks ?? 0} 任务 · ${stats?.toolCalls ?? 0} 工具调用`;
-    container.title = `DSH 伴侣\n${taskLine}\n点击打开统计面板`;
+    const sub = el('span', '');
+    const bits = [];
+    if (working && state.task) {
+        // 进行中：第二行只用任务名 + 状态词，读数留给第一行（设计稿 04）。
+        sub.textContent = `${state.task.project || state.label || '任务'} · 进行中`;
+    }
+    else {
+        bits.push(`${stats?.tasks ?? 0} 个任务`);
+        const cost = Number(stats?.cost) || 0;
+        if (cost > 0) {
+            const sym = state.settings.currency === 'USD' ? '$' : '¥';
+            bits.push(`${sym}${cost.toFixed(2)}`);
+        }
+        sub.textContent = bits.join(' · ');
+    }
+    text.appendChild(main);
+    text.appendChild(sub);
+    // 第三行：余额 + 峰谷。用户要求放在 DSH 左下角角标，不占面板左栏。
+    const sym = state.settings.currency === 'USD' ? '$' : '¥';
+    let balText = '余额 —';
+    if (balance !== null) {
+        if (balance.enabled === false)
+            balText = '余额 未开启';
+        else if (balance.ok === true) {
+            const balSym = balance.currency === 'USD' ? '$' : sym;
+            balText = '余额 ' + balSym + (Number(balance.normal) || 0).toFixed(2);
+        }
+    }
+    const offPeak = isOffPeakNow();
+    const foot = el('span', 'sb-foot');
+    foot.appendChild(el('b', '', balText));
+    const period = el('span', 'sb-period' + (offPeak ? ' is-off' : ''));
+    period.appendChild(el('i', ''));
+    period.appendChild(document.createTextNode(offPeak ? '闲时' : '高峰'));
+    period.title = offPeak
+        ? '闲时（UTC 16:30–00:30，官方高峰价 5 折）'
+        : '高峰时段，按官方高峰价计费；UTC 16:30–00:30 为闲时';
+    foot.appendChild(period);
+    text.appendChild(foot);
+    container.appendChild(text);
+    if (working) {
+        const dot = el('i', 'sb-dot');
+        const tone = STATE_TONE[state.state] ?? STATE_TONE.hooked;
+        dot.style.background = tone;
+        dot.style.boxShadow = `0 0 7px ${tone}`;
+        container.appendChild(dot);
+    }
+    else {
+        container.appendChild(el('span', 'sb-arrow', '›'));
+    }
+    const lines = ['DSH 伴侣'];
+    if (working && state.task) {
+        lines.push(`${state.task.project || state.label || '任务'} · 已 ${fmtElapsed(state.task.startTime, Date.now())}`);
+        lines.push(`当前 ${state.task.tokens.totalTokens.toLocaleString()} token · 今日 ${today.toLocaleString()} tokens`);
+        if ((stats?.cost ?? 0) > 0) {
+            const sym = state.settings.currency === 'USD' ? '$' : '¥';
+            lines.push(`今日 ${sym}${(stats?.cost ?? 0).toFixed(2)}`);
+        }
+    }
+    else {
+        lines.push(`今日 ${today.toLocaleString()} tokens · ${stats?.tasks ?? 0} 任务`);
+        if ((stats?.cost ?? 0) > 0) {
+            const sym = state.settings.currency === 'USD' ? '$' : '¥';
+            lines.push(`今日 ${sym}${(stats?.cost ?? 0).toFixed(2)}`);
+        }
+    }
+    lines.push('点击打开统计面板');
+    lines.push(balText + ' · ' + (offPeak ? '闲时' : '高峰'));
+    container.title = lines.join('\n');
 }
 function buildPanelModal(onClose) {
     const root = document.createElement('div');
     root.setAttribute(PANEL_ATTR, '');
     root.setAttribute('data-dsh-plugin', 'dsh-companion');
     root.setAttribute('data-dsh-part', 'panel-modal');
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-label', 'DSH 伴侣统计面板');
     const box = el('div', 'pm-box');
     const head = el('div', 'pm-head');
-    head.appendChild(el('span', 'pm-title', '🤖 DSH 伴侣 · 完整统计面板'));
-    const close = el('button', 'pm-close', '×');
+    const icon = el('span', 'pm-icon');
+    icon.innerHTML =
+        '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+            '<path d="M2 12c2.6 0 3.6-1.4 5.1-3.4C8.7 6.3 9.8 4 12 4c1.2 0 2 .7 2 2 0 3.6-3.2 6-7 6H2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>' +
+            '<circle cx="12.2" cy="5.6" r=".8" fill="currentColor"/></svg>';
+    head.appendChild(icon);
+    head.appendChild(el('span', 'pm-title', 'DSH 伴侣'));
+    head.appendChild(el('span', 'pm-sub', '统计面板'));
+    head.appendChild(el('span', 'pm-spacer'));
+    const live = el('span', 'pm-live', '本地服务 · 已连接');
+    live.setAttribute('data-dsh-part', 'panel-live');
+    head.appendChild(live);
+    const close = el('button', 'pm-close');
+    close.innerHTML =
+        '<svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m3 3 6 6M9 3 3 9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>';
     close.setAttribute('aria-label', '关闭');
     close.addEventListener('click', onClose);
     head.appendChild(close);
@@ -542,6 +1297,13 @@ function mountBadge() {
         document.addEventListener('keydown', onKey, true);
         offPanelKeys = () => document.removeEventListener('keydown', onKey, true);
     };
+    const setLiveText = (text) => {
+        if (panelModal === null)
+            return;
+        const live = panelModal.root.querySelector('[data-dsh-part="panel-live"]');
+        if (live !== null)
+            live.textContent = text;
+    };
     const closePanelModal = () => {
         if (panelModal === null)
             return;
@@ -566,6 +1328,7 @@ function mountBadge() {
                 const found = await discoverServer();
                 if (found === null) {
                     container.style.display = 'none';
+                    setLiveText('本地服务 · 离线');
                     return;
                 }
                 serverUrl = found.url;
@@ -583,12 +1346,26 @@ function mountBadge() {
                 cachedServerUrl = '';
                 state = null;
                 stats = null;
+                balanceInfo = null;
+                balanceFetchedAt = 0;
                 container.style.display = 'none';
+                setLiveText('本地服务 · 离线');
                 return;
             }
             state = s;
             stats = st;
-            renderBadge(container, state, stats);
+            setLiveText('本地服务 · 已连接');
+            renderBadge(container, state, stats, balanceInfo);
+            // 余额/峰谷：用户要求放在左下角角标。余额 30s 拉一次，不阻塞状态/统计。
+            if (Date.now() - balanceFetchedAt > 30_000) {
+                balanceFetchedAt = Date.now();
+                void fetchJson(`${serverUrl}/api/balance`).then((bal) => {
+                    if (stopped || serverUrl === '')
+                        return;
+                    balanceInfo = bal;
+                    renderBadge(container, state, stats, balanceInfo);
+                }, () => { });
+            }
         })();
     };
     const removeStyle = ensureStyle();
@@ -634,6 +1411,8 @@ const entry = {
             if (dispose !== undefined)
                 ctx.effect(() => dispose);
             mountSessionDeleteAction(ctx, modRequire);
+            // 推理等级：不改模型选择器，只在官方「推理等级」行上接管点击。
+            mountReasoningControl(ctx);
         }
         return { apply, inject };
     },

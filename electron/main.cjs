@@ -24,9 +24,9 @@ const PET_URL = process.env.PET_URL || 'http://127.0.0.1:17573'
 const HERE = __dirname
 const BOUNDS_FILE = path.join(HERE, 'pet-window.json')
 
-// 16x16 状态监测机器人托盘图标（内嵌，避免外部资源依赖）。
+// 32x32 鲸鱼背鳍托盘图标（单色荧光青，透明底；设计稿 04「托盘图标 · 单色」）。
 const TRAY_ICON = nativeImage.createFromDataURL(
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFmSURBVDhPY2CgJfDv/y/g1/O/wr//vwK6HFHAv/t/g3/P///+Pf+2o8sRBXx6/mskTnrz37/nfwC6HNFg2tIt/9HFiALTlm6OmLVy575pS7b+ARkCwiD+9OXb8YdH//z1ArNX7Ti+YvvRj/vP3f5/+ubz/5cevANjEH/2yp1PQGrQ9cEBSPO+M7fgmtDxpkMXfk9btrkFXR8YzFy+rWTN7pOflmzc97+sqR8Dg8SPXX38f+aK7ffQ9YLBrBU7nh08fw+sWErFAAODxC/cewsKj9/oesFg2rKtjzcdOv8dpDC0pud//+UX/11Siv/3nH38P3nSYrABIG/gjZm5q3dvjMuq+IFuO8wFBA0AgajUwqaQxNz3ESlF/6PTi38ih8G5O6/+z1i27Ru6HpwAZBtyLOw8cePX7JW71qGrwwlgBoDSw5o9p77OXb3r2Pz5+znQ1eEE05dt/QwyZMaK7a+nLtmUga4ZAOkPH+fMxefPAAAAAElFTkSuQmCC'
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB8klEQVR4AexUO0sDQRCejQ/URhR8wBmtfWAliEoS1DyMWCmC6QRLC7HwH1iIlZX/QHwUdgpJMGAuxDQWJhEEy+QSrUwCYpG46xwByeXucneJRotb5rvbnZmd+fa75Szwx8MkYCpgKmAqYCrQsAKLr7EBT5o/cgt8DPHuTvMJtxDe0/uHb4iAM3M72lIqxhmBHWw4jegCAhMA5NCVDm+CjlE3AafAD1uYJYQ9+hEyI4Qsy5wKjroIrCeT7RYGV1hvEKFiZEAlIHHXRSDfk9svSy2pJVkQYILEobIwTMAlhOcAmJ5L9qDSU+I2RECUHoCcgI5BKb3UkQaGCOR7cwcEYESrMOb4g1bHs1aeGNdNYCkTWQXGdsVNGngr0pYtjZzvsC4CnmxknDKmLT2BIgBdCVlndV1AkYUmAW823Ecpu8DkDkQtKzDKvAHOEa2VVB2rScAj8M5PSuL4TceqN1asKc7P8OQTwSH7Dc4NmYzATCra6RJ4n1vgQwwgiNWqfzYF9CUA2Dm+t1vbSlyAs/nw5ClcGzYZgTvr7EeQs51i0QUEUUA3+iYDnH0D38fX/fMvhrtWbJARqIg1Zfo/CeDle8Q7wNQgxn9KHmUFGDxhg3tVlOMYbtwUCfiHbGt4wabUIMYbb12uoEigHGrO89cJaB3jCwAA//+5+CWkAAAABklEQVQDAI5cr0H2BqySAAAAAElFTkSuQmCC'
 )
 
 let win = null
@@ -48,12 +48,13 @@ process.on('unhandledRejection', (err) => {
   console.error('[dsh-companion] main 未处理的 Promise 拒绝:', err && err.stack ? err.stack : err)
 })
 
-// 窗口尺寸的合理区间。桌宠窗口尺寸由设置里的 scale 算出（看门狗：240*scale+40 ×
-// 200*scale+150），而 scale 在页面侧夹死 0.4..3 → 理论最大约 760×750。
+// 窗口尺寸的合理区间。桌宠窗口尺寸由设置里的 scale 算出（看门狗：
+// 300*scale+40 × 240*scale+150，scale=1 时即设计稿建议的 340×390），
+// 而 scale 在页面侧夹死 0.4..3 → 理论最大约 940×870。
 // 上限留足余量取 1200，超出即判定为畸形（DPI 切换/异常事件把窗口撑大的结果）。
 // 这些常量是 loadBounds / saveBounds / safeSetBounds / clampBounds 的**单一事实来源**。
-const DEFAULT_W = 300
-const DEFAULT_H = 340
+const DEFAULT_W = 340
+const DEFAULT_H = 390
 const MIN_W = 120
 const MIN_H = 120
 const MAX_W = 1200
@@ -143,8 +144,8 @@ function scheduleSaveBounds() {
 function defaultBounds() {
   const area = screen.getPrimaryDisplay().workArea
   return {
-    x: area.x + area.width - 320,
-    y: area.y + area.height - 360,
+    x: area.x + area.width - 360,
+    y: area.y + area.height - 410,
     width: DEFAULT_W,
     height: DEFAULT_H,
   }
@@ -375,6 +376,19 @@ ipcMain.handle('pet-shell:toggle-click-through', () => {
 ipcMain.handle('pet-shell:quit', () => {
   app.quit()
 })
+// 显示伴侣即时生效（面板 PUT showPet → SSE → 悬浮页 → 这里）。
+// 看门狗仍保留 5s 轮询作为旧壳/页面未加载时的兜底。
+ipcMain.on('pet-shell:set-visible', (_event, visible) => {
+  if (!win || win.isDestroyed()) return
+  if (visible === true) {
+    // 显示前夹回屏幕：窗口可能被拖到屏幕外隐藏过。
+    safeSetBounds(win, clampBounds(win.getBounds()))
+    win.show()
+  } else {
+    win.hide()
+  }
+  scheduleTraySync()
+})
 // 久坐提醒：页面需要系统级空闲时间（GetLastInputInfo 语义）判断人是否离开。
 // powerMonitor.getSystemIdleTime() 返回秒数；浏览器模式没有这个 API。
 // 只读、无副作用；异常时回 0（页面按「没离开」处理，最坏只是多重提醒一次）。
@@ -591,9 +605,9 @@ function startWatchdog() {
             }
             if (typeof s.scale === 'number' && lastScale !== s.scale) {
               lastScale = s.scale
-              // 内容 = 伴侣 220x200·scale + 气泡区；保持 x/y 不动只伸缩尺寸。
-              const w = Math.round(240 * s.scale + 40)
-              const h = Math.round(200 * s.scale + 150)
+              // 内容 = 伴侣 220×200·scale + 下方气泡/上方举牌区；设计稿建议 340×390（scale=1）。
+              const w = Math.round(300 * s.scale + 40)
+              const h = Math.round(240 * s.scale + 150)
               const b = win.getBounds()
               if (Math.abs(b.width - w) > 4 || Math.abs(b.height - h) > 4) {
                 // 过 clampBounds：新尺寸也要夹回屏幕（多屏下直接 setBounds 可能落在屏外）

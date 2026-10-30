@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AccountBalanceSource, parseBalancePayload } from '../dist/balance/source.js'
-import { summarizeBalance, startOfDay, startOfMonth } from '../dist/balance/ledger.js'
+import { summarizeBalance, startOfDay, startOfMonth, collectBalanceSeries } from '../dist/balance/ledger.js'
 
 const SAMPLE = {
   code: 0,
@@ -227,4 +227,48 @@ test('AccountBalanceSource: 60s 内重复读取走缓存，不再发请求', asy
   assert.equal(second.cached, true)
   await source.read(true)
   assert.equal(calls, 2)
+})
+
+// ---------------------------------------------------------------------------
+// 30 天趋势（面板余额卡 sparkline）：按本地日取当天最后一个快照
+// ---------------------------------------------------------------------------
+
+test('collectBalanceSeries: 同一天多次采样只留最后一个（按本地日）', () => {
+  const now = new Date(2026, 9, 30, 18, 0).getTime()
+  const day = new Date(2026, 9, 29, 0, 0).getTime()
+  const snapshots = [
+    snap(day + 9 * 3600_000, 100),
+    snap(day + 15 * 3600_000, 98.5),
+    snap(day + 21 * 3600_000, 97.25, { bonus: 2.5 }),
+    snap(new Date(2026, 9, 30, 10, 0).getTime(), 90),
+  ]
+  const series = collectBalanceSeries(snapshots, 30, 'CNY', now)
+  assert.equal(series.days, 30)
+  assert.equal(series.currency, 'CNY')
+  assert.equal(series.points.length, 2, '两天各一个点')
+  assert.equal(series.points[0].ts, day + 21 * 3600_000, '应取当天最后一个采样')
+  assert.equal(series.points[0].normal, 97.25)
+  assert.equal(series.points[0].bonus, 2.5)
+  assert.equal(series.points[0].total, 99.75, 'total = normal + bonus（与低余额告警同口径）')
+  assert.ok(series.points[0].ts < series.points[1].ts, '返回必须按时间升序')
+})
+
+test('collectBalanceSeries: 窗口外快照被丢弃，空输入返回空数组', () => {
+  const now = new Date(2026, 9, 30, 12, 0).getTime()
+  const old = snap(new Date(2026, 6, 1, 12, 0).getTime(), 500)
+  const recent = snap(new Date(2026, 9, 29, 12, 0).getTime(), 100)
+  const series = collectBalanceSeries([old, recent], 30, 'CNY', now)
+  assert.equal(series.points.length, 1)
+  assert.equal(series.points[0].normal, 100)
+  assert.deepEqual(collectBalanceSeries([], 30, 'CNY', now), { days: 30, currency: 'CNY', points: [] })
+})
+
+test('collectBalanceSeries: days 夹进 1..365，金额保留两位', () => {
+  const now = new Date(2026, 9, 30, 12, 0).getTime()
+  const series = collectBalanceSeries([snap(now - 3600_000, 12.3456, { bonus: 0.005 })], 999, 'USD', now)
+  assert.equal(series.days, 365)
+  assert.equal(series.currency, 'USD')
+  assert.equal(series.points[0].normal, 12.35)
+  assert.equal(series.points[0].total, 12.35)
+  assert.equal(collectBalanceSeries([], 0, 'CNY', now).days, 1, '0 天归 1')
 })

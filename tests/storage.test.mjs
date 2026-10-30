@@ -68,6 +68,7 @@ for (const Backend of [SqlitePetStore, JsonPetStore]) {
         position: { x: 10, y: 20 },
         opacity: 0.8,
         scale: 1.2,
+        uiScale: 1.05,
         clickThrough: false,
         privacyMode: true,
         paused: false,
@@ -81,6 +82,14 @@ for (const Backend of [SqlitePetStore, JsonPetStore]) {
       assert.equal(settings.privacyMode, true)
       assert.deepEqual(settings.position, { x: 10, y: 20 })
       assert.equal(settings.budget.taskMaxTokens, 1000)
+      // 面板字号：0.9..1.1 夹取；非法值回 1。
+      assert.equal(settings.uiScale, 1.05)
+      await store.saveSettings({ ...settings, uiScale: 5 })
+      assert.equal((await store.loadSettings()).uiScale, 1.1, '超上限夹到 1.1')
+      await store.saveSettings({ ...settings, uiScale: 0.5 })
+      assert.equal((await store.loadSettings()).uiScale, 0.9, '低于下限夹到 0.9')
+      await store.saveSettings({ ...settings, uiScale: 'abc' })
+      assert.equal((await store.loadSettings()).uiScale, 1, '非法值回默认 1')
       // 余额低告警阈值：正数如实回读；非法值（0/负数/垃圾）归 null = 关。
       assert.equal(settings.balance.lowBalance, 8.5)
       // 自由活动开关：老库（无 roam 字段）默认开；显式 false 才关。

@@ -1,55 +1,93 @@
 <div align="center">
 
-# 🐳 DSH Companion
+<img src="icon.svg" width="84" alt="DSH Companion" />
+
+# DSH Companion 2.0
 
 A companion plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
-Desktop pet · usage & cost stats · budget alerts · UI enhancements
+Desktop pet · live status · usage stats · budget/balance · session management
 
-[中文](README.md) · [npm](https://www.npmjs.com/package/@qiuzhiyei/dsh-companion)
+[中文](README.md) · [Install](#install) · [Usage](#usage) · [Development](#development)
 
 ![npm](https://img.shields.io/npm/v/@qiuzhiyei/dsh-companion?label=npm&color=cb3837)
-![ci](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
-
-<img src="docs/images/pet.png" width="180" alt="Whale girl desktop pet" />
+![CI](https://github.com/qiuzhiyei/dsh-companion/actions/workflows/ci.yml/badge.svg?branch=main)
 
 </div>
 
+## What's new in 2.0.0
+
+- **Deep Sea Terminal UI** — redesigned panel, pet HUD, sidebar badge and icon
+- **Reasoning level** — switch the model's thinking effort from the composer
+- **Balance / peak hours** — moved to the bottom-left sidebar badge
+- **Panel upgrades** — task detail drawer, alert log, 30-day balance trend, UI font size
+- **Session management** — hard-delete and bulk-delete sessions
+- **Running status** — task name on start, persistent status bubble while running
+
 ## Features
 
-- 🐳 **Desktop pet** — expression follows the task state; click to pet, drag to move, wanders when idle
-- 👗 **5 skins** — JK / secretary / police / hanfu / qipao, each with its own expressions and dialogue voice
-- 📊 **Stats panel** — tokens, tasks, success rate, duration, cost, cache hits, all with period deltas
-- 💰 **Cost estimation** — official DeepSeek pricing, peak/off-peak halves, cache hits priced separately
-- 🚨 **Budget alerts** — per-task and daily caps on tokens or cost, with a bubble and a system notification
-- 🐳 **Balance ledger** — samples your DeepSeek account balance, tracks daily/monthly spend, alerts when it runs low
-- 🗂 **History & export** — filter by model / status / date / keyword, export CSV or JSON
-- 🧹 **Session management** — hard-delete sessions (the host only archives)
-- 🗄 **Data retention** — keep only the last N months of task history with automatic pruning (off by default; manual prune previews the row count and asks for confirmation first)
-- ⏰ **Sitting reminder** — nudge to stand up every N minutes
-- 🖥 **Floating window** — transparent, always on top, click-through, real tray icon
+- **Desktop pet** — animations and status bubbles for start / thinking / output / wrap-up / done / failure; pet, drag and idle roaming
+- **5 skins** — JK, secretary, police, hanfu, qipao, each with its own expressions and voice
+- **Bottom-left badge** — current task, today's tokens, running state, balance and peak/off-peak pricing; click to open the panel
+- **Stats panel** — tokens, cost, cache hits, success rate, duration, charts, model/project rankings and alert log
+- **Budget & balance** — per-task and daily budget alerts; DeepSeek account balance sampling and low-balance reminders
+- **Session management** — permanently delete sessions (the host only archives), with bulk cleanup
+- **Data retention** — keep the last N months, or keep everything (default)
+- **Desktop experience** — transparent floating window, click-through, tray, sitting reminder, privacy mode and pure-pet mode
 
 ## Install
 
-**Desktop app**: plugin manager → install plugin → `@qiuzhiyei/dsh-companion` → enable → fully quit and relaunch DSH.
+### Plugin manager (recommended)
 
-**CLI**:
+DSH → Plugin Manager → Install plugin → enter:
 
-```sh
-dsh plugin --profile <your-profile> add @qiuzhiyei/dsh-companion
+```text
+@qiuzhiyei/dsh-companion
 ```
 
-> Enable it in the plugin manager afterwards, then fully restart DSH.
-> The pet downloads its Electron runtime on first launch (~150 MB, China mirror) — no manual install.
+Then **enable** the plugin and **fully quit and relaunch DSH**.
+
+### CLI
+
+```sh
+dsh plugin --profile desktop add @qiuzhiyei/dsh-companion
+```
+
+Replace `desktop` with your profile name. Enable it in the plugin manager, then fully restart DSH.
+
+### Upgrade
+
+```sh
+dsh plugin --profile desktop add @qiuzhiyei/dsh-companion@latest
+```
+
+Then restart DSH.
+
+> The pet downloads its Electron runtime on first launch (~150 MB). If the download fails, the panel and stats still work; the companion falls back to browser mode.
+
+## Usage
+
+- **Bottom-left badge**: current task, today's usage, balance and peak/off-peak; click for the full panel.
+- **Pet**: left-click to pet, drag to move, double-click for balance; Ctrl + wheel to resize.
+- **Panel**: Tasks / Stats / Sessions / Settings; click a task row for details.
+- **Reasoning level**: click the current effort next to the model name in the composer, then drag the sonar bar.
+- **Settings**: appearance, behavior, budget, balance and retention; UI font size 90–110%.
+
+## Data & privacy
+
+- Tasks, settings and balance snapshots stay locally in `~/.dsh/dsh-companion`.
+- No conversation text is stored — only task metadata (project, model, tokens, cost, tool counts).
+- Privacy mode hides task names, models and amounts; pure-pet mode keeps only the animation.
 
 ## Development
 
 ```sh
-pnpm install && pnpm run build
+pnpm install
+pnpm run build
 pnpm test
 ```
 
-Architecture and pitfalls: [AGENTS.md](AGENTS.md). Release process: [npm发布.md](npm发布.md).
+Architecture and pitfalls: [AGENTS.md](AGENTS.md).
 
 ## License
 

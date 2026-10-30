@@ -88,3 +88,38 @@ export function summarizeBalance(input) {
         result.start = result.end;
     return result;
 }
+/**
+ * 余额趋势（面板余额卡的 30 天 sparkline）：按本地日取当天最后一个快照。
+ *
+ * 为什么按日而不是保留原始点：一天多次采样会让折线抖成锯齿，30 天窗口下
+ * 根本看不出趋势；「当天收盘余额」是用户读得懂的口径。返回升序，空数组表示
+ * 还没有任何采样（页面显示引导，不画假线）。
+ */
+export function collectBalanceSeries(snapshots, days, currency, now = Date.now()) {
+    const spanDays = Math.max(1, Math.min(365, Math.round(Number(days)) || 1));
+    const cutoff = now - spanDays * 86_400_000;
+    const byDay = new Map();
+    for (const snapshot of snapshots) {
+        if (!Number.isFinite(snapshot.ts) || snapshot.ts < cutoff)
+            continue;
+        const d = new Date(snapshot.ts);
+        const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        const prev = byDay.get(key);
+        if (prev && prev.ts >= snapshot.ts)
+            continue;
+        byDay.set(key, {
+            ts: snapshot.ts,
+            normal: round2(Number(snapshot.normal) || 0),
+            bonus: round2(Number(snapshot.bonus) || 0),
+            total: round2(totalOf(snapshot)),
+        });
+    }
+    return {
+        days: spanDays,
+        currency,
+        points: [...byDay.values()].sort((a, b) => a.ts - b.ts),
+    };
+}
+function round2(value) {
+    return Math.round(value * 100) / 100;
+}

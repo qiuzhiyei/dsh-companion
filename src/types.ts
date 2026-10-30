@@ -126,7 +126,13 @@ export interface PetSettings {
   restReminder: { enabled: boolean; intervalMinutes: number }
   position: { x: number; y: number } | null
   opacity: number
+  /** 伴侣悬浮窗缩放（0.4..3，只影响宠物与气泡，不改窗口字号）。 */
   scale: number
+  /**
+   * 面板界面字号倍率（0.9..1.1，默认 1 = 设计稿基准）。
+   * 只缩放面板文字；不改伴侣/HUD 大小，也不改窗口布局尺寸。
+   */
+  uiScale: number
   clickThrough: boolean
   privacyMode: boolean
   /** 桌面悬浮伴侣是否显示（Electron 壳据此显示/隐藏窗口，默认开）。 */
@@ -229,6 +235,7 @@ export const DEFAULT_SETTINGS: PetSettings = {
   position: null,
   opacity: 1,
   scale: 1,
+  uiScale: 1,
   clickThrough: false,
   privacyMode: false,
   showPet: true,
@@ -460,6 +467,42 @@ export interface SeriesBucket {
 export interface StatsSeries {
   period: 'today' | 'week' | 'month' | 'all'
   buckets: SeriesBucket[]
+}
+
+// ---------------------------------------------------------------------------
+// 告警记录 / 余额趋势（面板统计页）
+// ---------------------------------------------------------------------------
+
+/** 告警类别：预算 / 余额不足 / 任务失败 / 任务中断。 */
+export type AlertType = 'budget' | 'balance' | 'failed' | 'interrupted'
+export type AlertLevel = 'warn' | 'error' | 'info'
+
+/**
+ * 告警记录（GET /api/alerts）。气泡消失后仍可回查：BudgetGuard 的告警与
+ * 失败/中断任务都会落到 <dataDir>/alerts.json 的环形日志（最多 50 条）。
+ */
+export interface AlertEntry {
+  id: string
+  time: number
+  type: AlertType
+  level: AlertLevel
+  text: string
+}
+
+/** 余额趋势的一个采样点（按本地日取当天最后一个快照）。 */
+export interface BalancePoint {
+  ts: number
+  normal: number
+  bonus: number
+  /** normal + bonus（与低余额告警同口径）。 */
+  total: number
+}
+
+/** 30 天余额趋势（GET /api/balance/series）：没有快照时 points 为空。 */
+export interface BalanceSeries {
+  days: number
+  currency: string
+  points: BalancePoint[]
 }
 
 // ---------------------------------------------------------------------------

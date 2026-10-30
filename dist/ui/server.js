@@ -196,6 +196,14 @@ export class PetServer {
             const period = url.searchParams.get('period') === 'month' ? 'month' : 'today';
             return json(res, await this.deps.balanceSummary(period));
         }
+        if (path === '/api/balance/series' && method === 'GET') {
+            const days = clampInt(url.searchParams.get('days'), 1, 365, 30);
+            return json(res, await this.deps.balanceSeries(days));
+        }
+        if (path === '/api/alerts' && method === 'GET') {
+            const limit = clampInt(url.searchParams.get('limit'), 1, 20, 5);
+            return json(res, { alerts: this.deps.alerts(limit) });
+        }
         // ---- 数据保留：先预览（会删多少条）再清理，清理不可逆 ----
         if (path === '/api/retention' && method === 'GET') {
             return json(res, await this.deps.retention());

@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('petShell', {
   // 智能穿透：页面检测鼠标是否悬在宠物本体上，true = 放行周边（窗口忽略
   // 鼠标但转发 mousemove），false = 收回交互。全穿透模式下主进程会拒绝。
   setMouseIgnore: (ignore) => ipcRenderer.send('pet-shell:set-mouse-ignore', ignore),
+  // 显示/隐藏伴侣：面板改 settings.showPet 后经 SSE 到悬浮页，页面立即走这里，
+  // 不用等主进程看门狗的 5s 轮询。
+  setVisible: (visible) => ipcRenderer.send('pet-shell:set-visible', visible === true),
   // 久坐提醒：系统级空闲秒数（键盘/鼠标多久没动了），判断人是否离开电脑。
   systemIdle: () => ipcRenderer.invoke('pet-shell:idle'),
   // 系统通知：长任务完成/失败、预算触顶。页面侧负责节流与开关（settings.notify）。

@@ -80,6 +80,13 @@ export function clampBalanceMinutes(v) {
         return DEFAULT_SETTINGS.balance.intervalMinutes;
     return Math.min(1440, Math.max(5, Math.round(n)));
 }
+/** 面板字号倍率：夹在 0.9..1.1（两位小数），非法值回默认 1。 */
+export function clampUiScale(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n))
+        return DEFAULT_SETTINGS.uiScale;
+    return Math.round(Math.min(1.1, Math.max(0.9, n)) * 100) / 100;
+}
 /** 数据保留月数：整数，夹在 1..120；null/0/非法值一律归 null（= 永久保留）。 */
 export function clampRetentionMonths(v) {
     if (v === null || v === undefined || v === '')
@@ -136,6 +143,8 @@ function mergeSettings(value) {
             : null,
         opacity: typeof raw.opacity === 'number' ? raw.opacity : DEFAULT_SETTINGS.opacity,
         scale: typeof raw.scale === 'number' ? raw.scale : DEFAULT_SETTINGS.scale,
+        // 老库没有 uiScale：默认 1（设计稿基准）；显式存过的值按 0.9..1.1 夹。
+        uiScale: clampUiScale(raw.uiScale),
         clickThrough: raw.clickThrough === true,
         privacyMode: raw.privacyMode === true,
         showPet: raw.showPet !== false,

@@ -32,10 +32,11 @@ import { TaskTracker, finishedViewFromSession } from './state-machine/task-track
 import { BudgetGuard } from './state-machine/budget.js'
 import { computePeriodStats, computeRanking, computeSeries } from './storage/stats.js'
 import { exportSessions, type ExportFilter } from './storage/export.js'
-import { openPetStore, clampBalanceMinutes, clampRetentionMonths, retentionCutoff } from './storage/store.js'
+import { openPetStore, clampBalanceMinutes, clampRetentionMonths, clampUiScale, retentionCutoff } from './storage/store.js'
 import type { PetStore } from './storage/store.js'
+import { AlertLog } from './storage/alert-log.js'
 import { AccountBalanceSource } from './balance/source.js'
-import { balancePeriodRange, summarizeBalance } from './balance/ledger.js'
+import { balancePeriodRange, collectBalanceSeries, summarizeBalance } from './balance/ledger.js'
 import { OfficialPricingSource } from './pricing/official.js'
 import { SkinRegistry } from './ui/skins.js'
 import { PetServer } from './ui/server.js'
@@ -50,6 +51,7 @@ import {
   LEGACY_DEFAULT_MODEL_PRICES,
 } from './types.js'
 import type {
+  BalanceSeries,
   BalanceSource,
   BalanceSummary,
   BalanceView,
@@ -157,6 +159,9 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       store = opened.store
       storageBackend = 'in-memory-json'
     }
+    // 告警记录：预算/余额告警与失败/中断任务都会落到这里，面板可回查。
+    const alertLog = new AlertLog(join(dataDir, 'alerts.json'))
+    await alertLog.load()
 
     // ---- ② 设置（存储值 ← Config 默认值合并） ----
     const settings: PetSettings = await store.loadSettings()
@@ -268,6 +273,19 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
         store.latestBalanceSnapshot(from).catch(() => null),
       ])
       return summarizeBalance({ period, snapshots: points, baseline })
+    }
+
+    /**
+     * 余额趋势（面板余额卡的 30 天 sparkline）：按本地日取当天最后一个快照，
+     * 避免一天多次采样把折线抖成锯齿。没有快照就返回空数组（页面显示引导）。
+     */
+    async function balanceSeries(days: number): Promise<BalanceSeries> {
+      const spanDays = Math.max(1, Math.min(365, Math.round(Number(days)) || 1))
+      const now = Date.now()
+      const snapshots = await store
+        .listBalanceSnapshots(now - spanDays * 86_400_000, now)
+        .catch(() => [])
+      return collectBalanceSeries(snapshots, spanDays, currentSettings.currency, now)
     }
 
     /**
@@ -467,6 +485,17 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
         }
       }
       await store.saveTask(task)
+      // 失败/中断也进告警记录：气泡过去就查不到了，面板应能回看（设计稿「告警记录」）。
+      if (task.status === 'failed' || task.status === 'interrupted') {
+        const word = task.status === 'failed' ? '失败' : '中断'
+        const name = task.project || task.model || task.id
+        await alertLog.record({
+          type: task.status,
+          level: 'error',
+          text: `任务${word} · ${name} · ${task.totalTokens.toLocaleString()} token`,
+          time: task.endTime ?? Date.now(),
+        })
+      }
       // 任务结束后补一次余额采样：单任务余额差可作费用估算的旁证（异步、失败不拦）。
       if (currentSettings.balance.enabled) void sampleBalance('task')
       ctx.emit(EVENTS.taskFinished, { task })
@@ -478,6 +507,13 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
 
     async function raiseAlert(alert: BudgetAlert): Promise<void> {
       lastAlert = alert
+      // 气泡/Toast 是瞬时的：同一时刻落一条可回查的记录（面板「告警记录」卡）。
+      await alertLog.record({
+        type: alert.kind === 'balance-low' ? 'balance' : 'budget',
+        level: 'warn',
+        text: alert.message,
+        time: alert.time,
+      })
       ctx.emit(EVENTS.budgetAlert, { alert })
       await tray.notify(alert.message)
       pushSnapshot()
@@ -563,6 +599,8 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       ranking: (period) => computeRanking(store, period),
       balance: (force) => sampleBalance('manual', force),
       balanceSummary: (period) => balanceSummary(period),
+      balanceSeries: (days) => balanceSeries(days),
+      alerts: (limit) => alertLog.list(limit),
       retention: () => retentionView(),
       pruneRetention: () => pruneRetention(),
       updateSettings,
@@ -708,6 +746,8 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       if (typeof patch.scale === 'number' && patch.scale >= 0.2 && patch.scale <= 5) {
         next.scale = patch.scale
       }
+      // 面板字号：只影响面板文字（0.9..1.3）；不写伴侣 scale。
+      if (patch.uiScale !== undefined) next.uiScale = clampUiScale(patch.uiScale)
       if (typeof patch.clickThrough === 'boolean') next.clickThrough = patch.clickThrough
       if (typeof patch.privacyMode === 'boolean') next.privacyMode = patch.privacyMode
       if (typeof patch.showPet === 'boolean') next.showPet = patch.showPet

@@ -83,6 +83,7 @@ export const DEFAULT_SETTINGS = {
     position: null,
     opacity: 1,
     scale: 1,
+    uiScale: 1,
     clickThrough: false,
     privacyMode: false,
     showPet: true,
