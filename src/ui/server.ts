@@ -30,6 +30,7 @@ import type {
   TaskSession,
 } from '../types.js'
 import type { ExportFilter, ExportResult } from '../storage/export.js'
+import type { HolidayCalendarView, HolidaySyncResult } from '../pricing/holidays.js'
 import type { TaskQuery } from '../storage/store.js'
 import type { MockScenario } from '../adapter/mock-adapter.js'
 import type {
@@ -53,6 +54,10 @@ export interface PetServerDeps {
   pricing(): OfficialPricingStatus
   /** 手动触发一次官方价格同步。 */
   refreshPricing(): Promise<{ ok: boolean; error: string | null }>
+  /** 当前节假日日历（峰谷判断 + 设置页状态）。 */
+  holidays(): HolidayCalendarView
+  /** 同步当年 + 次年法定节假日；官方未发布的年份保持原数据。 */
+  syncHolidays(): Promise<HolidaySyncResult>
   stats(period: 'today' | 'week' | 'month' | 'all'): Promise<PeriodStats>
   /** 柱状图时间序列（today=小时 / week,month=天 / all=月）。 */
   statsSeries(period: 'today' | 'week' | 'month' | 'all'): Promise<StatsSeries>
@@ -268,6 +273,12 @@ export class PetServer {
     }
     if (path === '/api/pricing/refresh' && method === 'POST') {
       return json(res, await this.deps.refreshPricing())
+    }
+    if (path === '/api/holidays' && method === 'GET') {
+      return json(res, this.deps.holidays())
+    }
+    if (path === '/api/holidays/sync' && method === 'POST') {
+      return json(res, await this.deps.syncHolidays())
     }
     if (path === '/api/balance' && method === 'GET') {
       return json(res, await this.deps.balance(url.searchParams.get('refresh') === '1'))

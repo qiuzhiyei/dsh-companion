@@ -10,10 +10,11 @@
  * 不计费。MODEL VERSION 行（如 DeepSeek-V4.1-Flash-1017）随价格一并解析，
  * 面板展示模型版本用。
  *
- * 口径：同时解析 PEAK（高峰）与 OFF-PEAK（闲时，UTC 16:30–00:30 = 北京
- * 00:30–08:30）两档，官方闲时为半价；计价侧按任务开始时刻落在哪一档取价
- * （cost.ts isOffPeak），不再一律按高峰价高估。USD 按 Config.usdCnyRate 随
- * settings.currency 折算。缓存命中单价写入 ModelPrice.cacheInputPerMillion。
+ * 口径：同时解析 PEAK（高峰）与 OFF-PEAK（闲时，北京时间工作日
+ * 09:00–12:00 / 14:00–18:00 以外、周末与法定节假日）两档，官方闲时为半价；
+ * 计价侧按任务开始时刻落在哪一档取价（cost.ts isOffPeak），不再一律按高峰价高估。
+ * USD 按 Config.usdCnyRate 随 settings.currency 折算。缓存命中单价写入
+ * ModelPrice.cacheInputPerMillion。
  *
  * 为什么不用 DSH 本地数据：DSH 自身不保存任何货币价格 ——
  * `@deepseek-ai/dsh-token-meter` 的 route-pricing 是 token 计数模块（图像/文件

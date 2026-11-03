@@ -111,11 +111,15 @@ test('computeCost：缓存命中按 cache 单价，缺省退回 input 价（旧�
   assert.equal(computeCost(1_000_000, 100_000, 900_000, 'deepseek-flash', noCache), 3.024)
 })
 
-test('computeCost：闲时（OFF-PEAK）按任务时刻取半价，跨档不拆价', () => {
-  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 17, 0)), true, 'UTC 17:00 属闲时')
-  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 0, 0)), true, 'UTC 00:00 仍属闲时（跨零点）')
-  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 12, 0)), false, 'UTC 12:00 为高峰')
-  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 16, 29)), false, '16:29 还没到闲时')
+test('computeCost：官方峰谷（工作日 9–12 / 14–18，午休/夜间/周末/节假日闲时）', () => {
+  // 2026-10-20 周二；以下 UTC 对应北京时间。
+  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 1, 0)), false, '北京 09:00 进入高峰')
+  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 2, 0)), false, '北京 10:00 高峰')
+  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 4, 0)), true, '北京 12:00 午休闲时')
+  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 6, 0)), false, '北京 14:00 回到高峰')
+  assert.equal(isOffPeak(Date.UTC(2026, 9, 20, 10, 0)), true, '北京 18:00 进入闲时')
+  assert.equal(isOffPeak(Date.UTC(2026, 9, 24, 2, 0)), true, '周六 10:00 全天闲时')
+  assert.equal(isOffPeak(Date.UTC(2026, 9, 1, 2, 0)), true, '国庆 10:00 全天闲时')
   const prices = {
     'deepseek-flash': {
       inputPerMillion: 2.16,
@@ -126,7 +130,7 @@ test('computeCost：闲时（OFF-PEAK）按任务时刻取半价，跨档不拆�
       outputOffPeakPerMillion: 4.32,
     },
   }
-  const peak = computeCost(1_000_000, 100_000, 0, 'deepseek-flash', prices, Date.UTC(2026, 9, 20, 12, 0))
+  const peak = computeCost(1_000_000, 100_000, 0, 'deepseek-flash', prices, Date.UTC(2026, 9, 20, 2, 0))
   const off = computeCost(1_000_000, 100_000, 0, 'deepseek-flash', prices, Date.UTC(2026, 9, 20, 18, 0))
   assert.equal(peak, 3.024)
   assert.equal(off, 1.512, '闲时正好半价')

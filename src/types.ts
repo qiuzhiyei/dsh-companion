@@ -329,6 +329,8 @@ export interface PetSnapshot {
   alert: BudgetAlert | null
   settings: PetSettings
   currency: string
+  /** 当前生效的中国法定节假日（北京时间 YYYY-MM-DD）；面板/角标用于峰谷判断。 */
+  holidays: string[]
   serverUrl: string
 }
 
@@ -515,7 +517,7 @@ export interface ModelPrice {
   outputPerMillion: number
   /** 缓存命中输入单价；缺省按 inputPerMillion 计（DeepSeek 缓存命中约为未命中的 1/50，不拆分会严重高估）。 */
   cacheInputPerMillion?: number
-  /** 闲时（OFF-PEAK，UTC 16:30–00:30）单价；缺省按高峰价计（没有闲时折扣的模型）。 */
+  /** 闲时（OFF-PEAK，北京时间工作日 9–12 / 14–18 以外、周末与法定节假日）单价；缺省按高峰价计（没有闲时折扣的模型）。 */
   inputOffPeakPerMillion?: number
   cacheInputOffPeakPerMillion?: number
   outputOffPeakPerMillion?: number

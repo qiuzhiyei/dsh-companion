@@ -55,11 +55,23 @@ const STATE_TONE = {
 const FIN_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
     '<path d="M2 12c2.6 0 3.6-1.4 5.1-3.4C8.7 6.3 9.8 4 12 4c1.2 0 2 .7 2 2 0 3.6-3.2 6-7 6H2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>' +
     '<circle cx="12.2" cy="5.6" r=".8" fill="currentColor"/></svg>';
-/** 与面板/计价卡同口径：UTC 16:30–00:30 为闲时（北京 00:30–08:30）。 */
-function isOffPeakNow() {
-    const d = new Date();
+/**
+ * 官方峰谷口径（北京时间）：周一至周五 09:00–12:00、14:00–18:00 为高峰；
+ * 周末与中国法定节假日全天为闲时。holidays 由 /api/state 下发。
+ */
+function isOffPeakNow(holidays) {
+    const d = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    const weekday = d.getUTCDay();
+    if (weekday === 0 || weekday === 6)
+        return true;
+    const p = (n) => String(n).padStart(2, '0');
+    const key = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+    if (Array.isArray(holidays) && holidays.includes(key))
+        return true;
     const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
-    return minutes >= 16 * 60 + 30 || minutes < 30;
+    return (minutes < 9 * 60 ||
+        (minutes >= 12 * 60 && minutes < 14 * 60) ||
+        minutes >= 18 * 60);
 }
 function fmtTokens(n) {
     if (!Number.isFinite(n) || n <= 0)
@@ -982,15 +994,15 @@ function renderBadge(container, state, stats, balance) {
             balText = '余额 ' + balSym + (Number(balance.normal) || 0).toFixed(2);
         }
     }
-    const offPeak = isOffPeakNow();
+    const offPeak = isOffPeakNow(state.holidays);
     const foot = el('span', 'sb-foot');
     foot.appendChild(el('b', '', balText));
     const period = el('span', 'sb-period' + (offPeak ? ' is-off' : ''));
     period.appendChild(el('i', ''));
     period.appendChild(document.createTextNode(offPeak ? '闲时' : '高峰'));
     period.title = offPeak
-        ? '闲时（UTC 16:30–00:30，官方高峰价 5 折）'
-        : '高峰时段，按官方高峰价计费；UTC 16:30–00:30 为闲时';
+        ? '闲时（周末/法定节假日，或工作日 9–12、14–18 以外），官方高峰价 5 折'
+        : '高峰时段（北京时间工作日 9:00–12:00 / 14:00–18:00）';
     foot.appendChild(period);
     text.appendChild(foot);
     container.appendChild(text);

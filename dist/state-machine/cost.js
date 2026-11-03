@@ -5,6 +5,7 @@
  * 缓存命中 token 有 cacheInputPerMillion 时按其计价，否则按 input 价。
  * 计费按 provider 门控：只有 DeepSeek 官方 API 的任务计费（见 isPricedProvider）。
  */
+import { isOffPeakTime } from '../pricing/holidays.js';
 /** 单价缺省时的兜底（避免无价格模型算出 NaN）。 */
 const FALLBACK_PRICE = { inputPerMillion: 0, outputPerMillion: 0 };
 /**
@@ -32,21 +33,18 @@ export function priceFor(model, prices) {
     return prices[tail] ?? FALLBACK_PRICE;
 }
 /**
- * DeepSeek 闲时（OFF-PEAK）折扣时段：**UTC 16:30–00:30**（北京时间 00:30–08:30），
- * 官网定价为高峰价的 5 折。之前统一按 PEAK 价保守估算，夜间跑量会明显高估，
- * 所以计价按「任务开始时间落在哪个时段」选价（同一任务全程取开始时刻，不跨档拆价）。
+ * DeepSeek 闲时（OFF-PEAK）折扣：按北京时间判断——
+ * 周一至周五 09:00–12:00、14:00–18:00 为高峰，其余时段（含周末、
+ * 中国法定节假日全天）为闲时，官网定价为高峰价的 5 折。
+ * 同一任务按开始时刻取价，不跨档拆价。
  */
-export const OFF_PEAK_START_MIN = 16 * 60 + 30;
-export const OFF_PEAK_END_MIN = 30;
-export function isOffPeak(atMs) {
-    const d = new Date(atMs);
-    const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
-    return minutes >= OFF_PEAK_START_MIN || minutes < OFF_PEAK_END_MIN;
+export function isOffPeak(atMs, holidays) {
+    return isOffPeakTime(atMs, holidays);
 }
 /** 解析某模型在给定时刻适用的单价三件套（闲时缺价自动回退高峰价）。 */
-export function ratesFor(model, prices, atMs) {
+export function ratesFor(model, prices, atMs, holidays) {
     const price = priceFor(model, prices);
-    const off = atMs !== undefined && Number.isFinite(atMs) && isOffPeak(atMs);
+    const off = atMs !== undefined && Number.isFinite(atMs) && isOffPeak(atMs, holidays);
     const input = off ? price.inputOffPeakPerMillion ?? price.inputPerMillion : price.inputPerMillion;
     const output = off ? price.outputOffPeakPerMillion ?? price.outputPerMillion : price.outputPerMillion;
     const cache = off
@@ -57,8 +55,8 @@ export function ratesFor(model, prices, atMs) {
 /** 计费输入 = 未命中输入按 input 价 + 缓存 token 按 cache 价（DISJOINT 口径相加）。 */
 export function computeCost(promptTokens, completionTokens, cachedTokens, model, prices, 
 /** 计费时刻（一般传任务开始时间）；缺省按高峰价。 */
-atMs) {
-    const rates = ratesFor(model, prices, atMs);
+atMs, holidays) {
+    const rates = ratesFor(model, prices, atMs, holidays);
     if (rates.input === 0 && rates.output === 0 && rates.cache === 0) {
         return 0;
     }

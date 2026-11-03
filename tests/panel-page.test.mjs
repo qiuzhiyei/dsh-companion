@@ -200,6 +200,8 @@ test('设置页：四组 + 即时生效 + 官方价 + 数据保留', () => {
   assert.ok(html.includes('久坐提醒'), '久坐卡片文案')
   assert.ok(html.includes('起来走走或离开电脑会自动重算'), '久坐说明应写清自动重算口径')
   assert.ok(html.includes('put({ restReminder:'), '久坐改动应即时 PUT')
+  assert.ok(!html.includes('气泡预览') && !html.includes('坐了好久啦'), '设置页不应再有静态气泡预览')
+  assert.ok(!html.includes('preview-bubble'), '静态预览样式应删除')
   assert.ok(!html.includes('右键菜单'), '面板文案不应再提已删除的右键菜单')
   // 计费
   for (const id of [
@@ -213,7 +215,12 @@ test('设置页：四组 + 即时生效 + 官方价 + 数据保留', () => {
   assert.ok(html.includes("fetch('/api/stats?period=today')"), '预算进度必须按今日口径取数')
   assert.ok(html.includes('/api/pricing/refresh'), '缺手动同步官方价')
   assert.ok(html.includes('空闲价为高峰价的一半'), '价格表应说明闲时口径')
-  assert.ok(html.includes('UTC 16:30–00:30'), '闲时区间必须写对（不是设计稿 demo 的 9-12/14-18）')
+  assert.ok(html.includes('9:00–12:00') && html.includes('14:00–18:00'), '官方峰谷区间必须写对')
+  assert.ok(html.includes('法定节假日'), '必须说明法定节假日全天闲时')
+  assert.ok(!html.includes('UTC 16:30–00:30'), '旧版 UTC 峰谷口径必须移除')
+  assert.ok(html.includes('id="btnSyncHolidays"'), '缺节假日同步按钮')
+  assert.ok(html.includes('/api/holidays/sync'), '节假日同步按钮必须打后端接口')
+  assert.ok(html.includes('setInterval(() => {') && html.includes('renderOfficialRows()'), '峰谷必须在时段边界自动重算')
   assert.ok(html.includes('function putBalance'), '余额设置应整体提交（enabled/interval/lowBalance 三件套）')
   assert.ok(html.includes('id="setBalanceLow"'), '余额低告警阈值输入框')
   // 数据：导出 / 暂停 / 保留 / 模拟
@@ -271,7 +278,7 @@ test('面板页：跟随系统深浅色 + 设计变量', () => {
     assert.ok(html.includes('var(' + v + ')'), '图表未引用变量 ' + v)
   }
   const light = html.slice(html.indexOf('@media (prefers-color-scheme: light)'))
-  for (const sel of ['.drawer{', '.metric-card', '.status.ok', '.preview-bubble', '.save-toast']) {
+  for (const sel of ['.drawer{', '.metric-card', '.status.ok', '.official-box', '.save-toast']) {
     assert.ok(light.includes(sel), '浅色块缺覆盖 ' + sel)
   }
   assert.ok(html.includes('prefers-reduced-motion'), '应尊重系统减少动态效果')

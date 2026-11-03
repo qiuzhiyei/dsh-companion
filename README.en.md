@@ -15,20 +15,22 @@ Desktop pet · live status · usage stats · budget/balance · session managemen
 
 </div>
 
-## What's new in 2.0.0
+## What's new in 2.0
 
 - **Deep Sea Terminal UI** — redesigned panel, pet HUD, sidebar badge and icon
 - **Reasoning level** — switch the model's thinking effort from the composer
-- **Balance / peak hours** — moved to the bottom-left sidebar badge
+- **Balance / peak hours** — moved to the bottom-left sidebar badge; peak/off-peak switches automatically using the official Beijing-time rule (weekdays 9:00–12:00 / 14:00–18:00 peak, weekends and statutory holidays off-peak), with a holiday-calendar sync button in Billing settings
 - **Panel upgrades** — task detail drawer, alert log, 30-day balance trend, UI font size
 - **Session management** — hard-delete and bulk-delete sessions
 - **Running status** — task name on start, persistent status bubble while running
+- **Settings cleanup** — removed the static sitting-reminder bubble preview; the real bubble only lives on the pet
 
 ## Features
 
 - **Desktop pet** — animations and status bubbles for start / thinking / output / wrap-up / done / failure; pet, drag and idle roaming
 - **5 skins** — JK, secretary, police, hanfu, qipao, each with its own expressions and voice
 - **Bottom-left badge** — current task, today's tokens, running state, balance and peak/off-peak pricing; click to open the panel
+- **Peak hours & holidays** — peak is weekdays 09:00–12:00 / 14:00–18:00 Beijing time; weekends and statutory holidays are off-peak all day; sync the holiday calendar from Billing settings
 - **Stats panel** — tokens, cost, cache hits, success rate, duration, charts, model/project rankings and alert log
 - **Budget & balance** — per-task and daily budget alerts; DeepSeek account balance sampling and low-balance reminders
 - **Session management** — permanently delete sessions (the host only archives), with bulk cleanup

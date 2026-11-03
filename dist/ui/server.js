@@ -189,6 +189,12 @@ export class PetServer {
         if (path === '/api/pricing/refresh' && method === 'POST') {
             return json(res, await this.deps.refreshPricing());
         }
+        if (path === '/api/holidays' && method === 'GET') {
+            return json(res, this.deps.holidays());
+        }
+        if (path === '/api/holidays/sync' && method === 'POST') {
+            return json(res, await this.deps.syncHolidays());
+        }
         if (path === '/api/balance' && method === 'GET') {
             return json(res, await this.deps.balance(url.searchParams.get('refresh') === '1'));
         }

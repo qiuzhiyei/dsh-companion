@@ -38,6 +38,12 @@ import { AlertLog } from './storage/alert-log.js'
 import { AccountBalanceSource } from './balance/source.js'
 import { balancePeriodRange, collectBalanceSeries, summarizeBalance } from './balance/ledger.js'
 import { OfficialPricingSource } from './pricing/official.js'
+import {
+  getHolidayCalendarView,
+  getHolidayDates,
+  loadHolidayCalendar,
+  syncHolidayCalendar,
+} from './pricing/holidays.js'
 import { SkinRegistry } from './ui/skins.js'
 import { PetServer } from './ui/server.js'
 import { TrayController } from './ui/tray.js'
@@ -146,6 +152,12 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
   ctx.effect(async () => {
     // ---- ① 数据目录与存储 ----
     const dataDir = config.dataDir || defaultDataDir()
+    // 峰谷节假日日历：有本地缓存就加载，否则用内置 2025–2026。
+    try {
+      await loadHolidayCalendar(dataDir)
+    } catch (error) {
+      log.warn(`节假日日历加载失败（${String(error)}），继续使用内置日历`)
+    }
     let store: PetStore
     let storageBackend = 'json'
     try {
@@ -594,6 +606,13 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
         pushSnapshot()
         return { ok: result.ok, error: result.error }
       },
+      holidays: () => getHolidayCalendarView(),
+      syncHolidays: async () => {
+        const now = new Date()
+        const result = await syncHolidayCalendar(dataDir, [now.getFullYear(), now.getFullYear() + 1])
+        if (result.ok) pushSnapshot()
+        return result
+      },
       stats: (period) => computePeriodStats(store, period),
       statsSeries: (period) => computeSeries(store, period),
       ranking: (period) => computeRanking(store, period),
@@ -723,6 +742,7 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
           modelPrices: { ...currentSettings.modelPrices },
         },
         currency: currentSettings.currency,
+        holidays: getHolidayDates(),
         serverUrl,
       }
     }

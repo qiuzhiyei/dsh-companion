@@ -525,17 +525,7 @@ export function panelPageHTML(): string {
   .setting-row .label{font-size:calc(14px * var(--ui-scale, 1));color:var(--ink-2);min-width:0}
   .setting-row .hint{display:block;font-size:calc(12.5px * var(--ui-scale, 1));color:var(--ink-3);margin-top:1px}
   .setting-row .control{display:flex;align-items:center;gap:8px;flex:none}
-  .wide-split{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
-  .remind-preview{display:grid;gap:6px;align-content:start}
-  .preview-label{font-family:var(--font-mono);font-size:calc(11.5px * var(--ui-scale, 1));letter-spacing:.1em;text-transform:uppercase;
-    color:var(--ink-3)}
-  .preview-bubble{display:flex;gap:9px;align-items:flex-start;padding:11px 12px;border-radius:7px;
-    background:rgba(9,23,31,.94);border:1px solid rgba(70,229,195,.3);color:#eef8fa;
-    box-shadow:0 10px 26px rgba(0,0,0,.4)}
-  .preview-bubble svg{width:16px;height:16px;color:var(--cyan);flex:none;margin-top:1px}
-  .preview-bubble b{display:block;font-size:calc(14.5px * var(--ui-scale, 1));color:#f2fbfd}
-  .preview-bubble span{display:block;font-family:var(--font-mono);font-size:calc(12.5px * var(--ui-scale, 1));color:#b7ccd3}
-  .preview-bubble .bubble-btn{height:24px;padding:0 9px;font-size:calc(13px * var(--ui-scale, 1));margin-top:7px}
+  .wide-split{display:grid;grid-template-columns:1fr;gap:24px;align-items:start}
   .price-meta{display:flex;justify-content:space-between;gap:10px;margin-top:10px;
     font-family:var(--font-mono);font-size:calc(12px * var(--ui-scale, 1));color:var(--ink-3)}
   #officialRows{overflow-x:auto}
@@ -661,7 +651,6 @@ export function panelPageHTML(): string {
     .session.is-selected{background:rgba(14,138,116,.06);border-color:rgba(14,138,116,.3)}
     .bulk-bar{background:rgba(255,255,255,.97)}
     .sm-confirm{background:rgba(253,234,229,.97);border-color:#d98d7e;color:#a13c29}
-    .preview-bubble{box-shadow:0 8px 20px rgba(20,45,60,.18)}
     .official-box,.act-btn{background:#fff}
     .retention-confirm{background:rgba(253,234,229,.96);border-color:#d98d7e;color:#a13c29}
     .save-toast{background:#fff;box-shadow:0 10px 24px rgba(20,45,60,.16)}
@@ -1066,15 +1055,6 @@ export function panelPageHTML(): string {
                           </span>
                         </div>
                       </div>
-                      <div class="remind-preview">
-                        <span class="preview-label">气泡预览 · 带两个操作</span>
-                        <div class="preview-bubble">
-                          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.3"/><path d="M8 5v3.4l2 1.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                          <div><b>坐了好久啦，起来走走吧</b><span>已连续 50 分钟 · 建议 5 分钟</span>
-                            <div style="display:flex;gap:6px"><button class="bubble-btn" type="button" style="background:var(--cyan);color:#04141a;border-radius:7px;font-weight:600">起来走走</button><button class="bubble-btn" type="button" style="background:transparent;border:1px solid rgba(255,255,255,.22);color:#dcecef;border-radius:7px">稍后 10 分钟</button></div>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -1119,13 +1099,19 @@ export function panelPageHTML(): string {
 
                   <div class="setting-card wide" id="card-pricing">
                     <div class="sc-head"><h4>货币与计价<button class="info" type="button" data-tip="只统计用 DeepSeek 账号（官方 API）跑的任务：模型名与最新价格从官网自动同步；自定义渠道（如阿里云百炼）与其他模型一律不计费，Token 照记。">i</button></h4><button class="btn sm" id="btnSyncPricing" type="button">同步最新价格</button></div>
-                    <p>官方价自动同步；空闲价为高峰价的一半（UTC 16:30–00:30）。</p>
+                    <p>官方价自动同步；高峰 = 北京时间工作日 9:00–12:00 / 14:00–18:00，法定节假日全天闲时。</p>
                     <div class="setting-row">
                       <span class="label">显示货币</span>
                       <span class="control"><div class="seg" id="currencySeg"><button type="button" data-cur="CNY">人民币</button><button type="button" data-cur="USD">美元</button></div></span>
                     </div>
                     <div class="official-box" id="officialBox">官方价格：加载中…</div>
                     <div id="officialRows"></div>
+                  </div>
+
+                  <div class="setting-card wide" id="card-holidays">
+                    <div class="sc-head"><h4>节假日日历<button class="info" type="button" data-tip="高峰时段按北京时间：周一至周五 9:00–12:00、14:00–18:00；周末和中国法定节假日全天为闲时。同步会拉取当年和次年数据；官方尚未发布的年份保留原日历，不会被清空。">i</button></h4><button class="btn sm" id="btnSyncHolidays" type="button">同步节假日</button></div>
+                    <p>高峰 = 北京时间工作日 9:00–12:00 / 14:00–18:00；法定节假日全天闲时。</p>
+                    <div class="official-box" id="holidayBox">已内置 2025–2026 节假日，点击同步最新年份。</div>
                   </div>
                 </div>
               </div>
@@ -1337,9 +1323,15 @@ function fmtCostText(c) {
   return cur() + (n < 1 ? n.toFixed(4) : n.toFixed(2))
 }
 function isOffPeakNow(at) {
-  const d = new Date(at || Date.now())
+  // 官方口径按北京时间：工作日 9–12 / 14–18 为高峰；周末/法定节假日全天闲时。
+  const d = new Date((at || Date.now()) + 8 * 60 * 60 * 1000)
+  const weekday = d.getUTCDay()
+  if (weekday === 0 || weekday === 6) return true
+  const p = (n) => String(n).padStart(2, '0')
+  const key = d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate())
+  if (snap && Array.isArray(snap.holidays) && snap.holidays.indexOf(key) >= 0) return true
   const minutes = d.getUTCHours() * 60 + d.getUTCMinutes()
-  return minutes >= 16 * 60 + 30 || minutes < 30
+  return minutes < 9 * 60 || (minutes >= 12 * 60 && minutes < 14 * 60) || minutes >= 18 * 60
 }
 function privateMode() { return !!(snap && snap.settings && snap.settings.privacyMode) }
 
@@ -2643,7 +2635,7 @@ function renderOfficialRows() {
         '<td>' + sym + (p.cacheInputPerMillion != null ? p.cacheInputPerMillion : 0) + offText(p.cacheInputOffPeakPerMillion) + '</td>' +
         '<td>' + sym + p.outputPerMillion + offText(p.outputOffPeakPerMillion) + '</td></tr>'
     }).join('') + '</tbody></table>' +
-    '<p class="price-note">空闲价为高峰价的一半。闲时 = UTC 16:30–00:30（北京时间 00:30–08:30）；同一任务按开始时刻取价，不跨档拆价。</p>'
+    '<p class="price-note">空闲价为高峰价的一半。高峰 = 北京时间工作日 9:00–12:00 / 14:00–18:00；周末与中国法定节假日全天闲时。同一任务按开始时刻取价，不跨档拆价。</p>'
 }
 $('btnSyncPricing').onclick = async (e) => {
   const btn = e.currentTarget || $('btnSyncPricing')
@@ -2655,6 +2647,55 @@ $('btnSyncPricing').onclick = async (e) => {
   if (res && res.ok) showToast('✓ 官方价格已同步', true)
   else showToast('⚠ 同步失败：' + ((res && res.error) || '网络错误'), false)
 }
+
+// ---- 节假日日历（峰谷判断数据源；官方发布后手动同步） ----
+let holidayInfo = null
+let holidaySync = null
+function renderHolidayBox() {
+  const box = $('holidayBox')
+  if (!box) return
+  if (!holidayInfo || !Array.isArray(holidayInfo.years)) {
+    box.textContent = '节假日日历加载中…'
+    return
+  }
+  const years = holidayInfo.years
+  const total = Array.isArray(holidayInfo.dates) ? holidayInfo.dates.length : 0
+  let text = '已加载 ' + (years.length ? years.join('、') : '—') + ' 节假日' +
+    (total ? '（共 ' + total + ' 天）' : '') + '。'
+  if (holidayInfo.updatedAt) text += '上次同步 ' + fmtStamp(holidayInfo.updatedAt) + '。'
+  if (holidaySync && Array.isArray(holidaySync.years)) {
+    const bits = holidaySync.years.map((y) => {
+      if (y.updated) return y.year + ' 已更新 ' + y.count + ' 天'
+      return y.year + ' ' + (y.reason || '保持原数据')
+    })
+    text += ' ' + bits.join('；') + '。'
+  }
+  box.textContent = text
+}
+async function loadHolidayInfo() {
+  try { holidayInfo = await (await fetch('/api/holidays')).json() } catch (err) { holidayInfo = null }
+  renderHolidayBox()
+}
+$('btnSyncHolidays').onclick = async (e) => {
+  const btn = e.currentTarget || $('btnSyncHolidays')
+  btn.disabled = true
+  btn.textContent = '同步中…'
+  let res = null
+  try { res = await (await fetch('/api/holidays/sync', { method: 'POST' })).json() } catch (err) { res = null }
+  holidaySync = res
+  await loadHolidayInfo()
+  renderOfficialRows()
+  btn.disabled = false
+  btn.textContent = '同步节假日'
+  if (res && res.ok) showToast('✓ 节假日日历已同步', true)
+  else showToast('⚠ ' + ((res && res.error) || '同步失败，保持原日历'), false)
+}
+void loadHolidayInfo()
+
+// 峰谷在 9:00 / 12:00 / 14:00 / 18:00 自动切换：面板每分钟重算一次。
+setInterval(() => {
+  if (document.visibilityState === 'visible') renderOfficialRows()
+}, 60_000)
 
 // ---- 数据保留 ----
 function retentionCutoffText(cutoff) {
