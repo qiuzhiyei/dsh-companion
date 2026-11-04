@@ -49,6 +49,7 @@ import { PetServer } from './ui/server.js'
 import { TrayController } from './ui/tray.js'
 import { SessionDeleter } from './ui-enhance/session-manager.js'
 import type { WorkspaceRegistryLike } from './ui-enhance/session-manager.js'
+import { searchHistory, resolveHistoryTurn } from './ui-enhance/history-search.js'
 import {
   DEFAULT_MODEL_PRICES,
   DEFAULT_SETTINGS,
@@ -646,6 +647,8 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
       deleteDshSession: (sessionId) => sessionDeleter.delete(sessionId),
       listDshSessions: () => sessionDeleter.listSessions(),
       deleteDshSessions: (sessionIds) => sessionDeleter.deleteMany(sessionIds),
+      searchHistory: (query) => searchHistory(ctx, query),
+      resolveHistoryTurn: (sessionId, seq) => resolveHistoryTurn(ctx, sessionId, seq),
       quit: async () => {
         log.info('收到退出请求，卸载插件')
         void ctx.fiber.dispose()

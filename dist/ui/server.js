@@ -285,6 +285,21 @@ export class PetServer {
             const status = result.ok ? 200 : result.error === 'registry-unavailable' ? 503 : 500;
             return json(res, result, status);
         }
+        if (path === '/api/history-search' && method === 'GET') {
+            const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200);
+            if (q === '')
+                return json(res, { messages: [], nextCursor: 0, done: true });
+            const cursor = Number(url.searchParams.get('cursor') ?? '0');
+            return json(res, await this.deps.searchHistory(q, Number.isSafeInteger(cursor) && cursor > 0 ? cursor : 0));
+        }
+        if (path === '/api/history-turn' && method === 'GET') {
+            const sessionId = url.searchParams.get('sessionId') ?? '';
+            const seq = Number(url.searchParams.get('seq') ?? '');
+            if (sessionId === '' || !Number.isSafeInteger(seq) || seq < 0) {
+                return json(res, { error: 'invalid-session-or-seq' }, 400);
+            }
+            return json(res, { turn: await this.deps.resolveHistoryTurn(sessionId, seq) });
+        }
         if (path === '/api/dsh-sessions/delete-many' && method === 'POST') {
             const body = await readJson(req);
             const result = await this.deps.deleteDshSessions(Array.isArray(body?.sessionIds) ? body.sessionIds : null);

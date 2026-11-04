@@ -38,6 +38,7 @@ import type {
   DeleteOutcome,
   ListSessionsOutcome,
 } from '../ui-enhance/session-manager.js'
+import type { HistorySearchPage } from '../ui-enhance/history-search.js'
 
 export interface PetServerDeps {
   snapshot(): PetSnapshot
@@ -85,6 +86,10 @@ export interface PetServerDeps {
   listDshSessions(): Promise<ListSessionsOutcome>
   /** 批量彻底删除（逐会话复用单删闸门，聚合结果）。 */
   deleteDshSessions(sessionIds: unknown): Promise<DeleteManyOutcome>
+  /** 独立历史对话搜索（标题 + 消息；按游标分批，不依赖 FTS 索引）。 */
+  searchHistory(query: string, cursor?: number): Promise<HistorySearchPage>
+  /** 点击消息时解析命中 seq 所属轮次。 */
+  resolveHistoryTurn(sessionId: string, seq: number): Promise<number | undefined>
   quit(): Promise<void>
 }
 
@@ -375,6 +380,20 @@ export class PetServer {
       const result = await this.deps.listDshSessions()
       const status = result.ok ? 200 : result.error === 'registry-unavailable' ? 503 : 500
       return json(res, result, status)
+    }
+    if (path === '/api/history-search' && method === 'GET') {
+      const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200)
+      if (q === '') return json(res, { messages: [], nextCursor: 0, done: true })
+      const cursor = Number(url.searchParams.get('cursor') ?? '0')
+      return json(res, await this.deps.searchHistory(q, Number.isSafeInteger(cursor) && cursor > 0 ? cursor : 0))
+    }
+    if (path === '/api/history-turn' && method === 'GET') {
+      const sessionId = url.searchParams.get('sessionId') ?? ''
+      const seq = Number(url.searchParams.get('seq') ?? '')
+      if (sessionId === '' || !Number.isSafeInteger(seq) || seq < 0) {
+        return json(res, { error: 'invalid-session-or-seq' }, 400)
+      }
+      return json(res, { turn: await this.deps.resolveHistoryTurn(sessionId, seq) })
     }
     if (path === '/api/dsh-sessions/delete-many' && method === 'POST') {
       const body = await readJson(req)

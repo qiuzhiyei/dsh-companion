@@ -24,6 +24,7 @@ Desktop pet · live status · usage stats · budget/balance · session managemen
 - **Session management** — hard-delete and bulk-delete sessions
 - **Running status** — task name on start, persistent status bubble while running
 - **Conversation search** — press Ctrl+F or use the header search button to search the current conversation, click a result to jump and highlight the keyword (loaded messages only); highlight color, candidate visibility and candidate count (default 3, 1–10, can be disabled) are all in the companion panel's Settings → Shortcuts, and snippets show only 3 characters before/after the hit
+- **History search** — a dedicated **History search** entry in the left sidebar (above Plugins) opens its own page with All / Messages / Conversations sections. Title matches appear immediately from local session data; messages are scanned across all sessions in progressive batches with no result cap. Clicking a message opens the session, jumps to the matching turn and highlights the search term in the transcript. It is independent from Ctrl+F current-conversation search but shares the same highlight-color setting, so transcript hits and snippet marks change together
 - **Settings cleanup** — removed the static sitting-reminder bubble preview; the real bubble only lives on the pet
 
 ## Features

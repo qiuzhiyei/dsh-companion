@@ -38,6 +38,7 @@ import { SkinRegistry } from './ui/skins.js';
 import { PetServer } from './ui/server.js';
 import { TrayController } from './ui/tray.js';
 import { SessionDeleter } from './ui-enhance/session-manager.js';
+import { searchHistory, resolveHistoryTurn } from './ui-enhance/history-search.js';
 import { DEFAULT_MODEL_PRICES, DEFAULT_SETTINGS, DEFAULT_USD_CNY_RATE, EVENTS, LEGACY_DEFAULT_MODEL_PRICES, } from './types.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -571,6 +572,8 @@ export function apply(ctx, config = Config({})) {
             deleteDshSession: (sessionId) => sessionDeleter.delete(sessionId),
             listDshSessions: () => sessionDeleter.listSessions(),
             deleteDshSessions: (sessionIds) => sessionDeleter.deleteMany(sessionIds),
+            searchHistory: (query) => searchHistory(ctx, query),
+            resolveHistoryTurn: (sessionId, seq) => resolveHistoryTurn(ctx, sessionId, seq),
             quit: async () => {
                 log.info('收到退出请求，卸载插件');
                 void ctx.fiber.dispose();

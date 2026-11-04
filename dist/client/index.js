@@ -1290,8 +1290,14 @@ const MIN_SEARCH_RESULT_LIMIT = 1;
 const MAX_SEARCH_RESULT_LIMIT = 10;
 const SEARCH_HIGHLIGHT = 'dsh-companion-find';
 const SEARCH_CURRENT_HIGHLIGHT = 'dsh-companion-find-current';
+const HISTORY_ATTR = 'data-dsh-companion-history';
+const HISTORY_STYLE_ATTR = 'data-dsh-companion-history-style';
 /** 供对话标题栏搜索按钮复用 Ctrl+F 的打开逻辑。 */
 let openConversationSearch = null;
+/** 独立的侧栏「历史搜索」入口。 */
+let openHistorySearchIn = null;
+let closeHistorySearch = null;
+let historySearchServerUrl = '';
 /** 只给对话页注入一次样式；颜色优先跟 DSH 令牌，旧 GUI 用深海回退。 */
 function ensureSearchStyle() {
     const old = document.querySelector(`[${SEARCH_STYLE_ATTR}]`);
@@ -1978,6 +1984,815 @@ function mountConversationSearch() {
         style.remove();
     };
 }
+/* ---------- 独立历史对话搜索（标题栏按钮） ---------- */
+function ensureHistoryStyle() {
+    const old = document.querySelector(`[${HISTORY_STYLE_ATTR}]`);
+    if (old !== null)
+        return old;
+    const style = document.createElement('style');
+    style.setAttribute(HISTORY_STYLE_ATTR, '');
+    style.textContent = `
+[${HISTORY_ATTR}] {
+  position: fixed; inset: 0; z-index: 10008; display: none;
+  align-items: flex-start; justify-content: center;
+  padding: 8vh 16px 16px; background: rgba(2,8,12,.62); backdrop-filter: blur(3px);
+}
+[${HISTORY_ATTR}][data-open="1"] { display: flex; }
+[${HISTORY_ATTR}] .dhs-modal {
+  width: min(720px, calc(100vw - 32px)); max-height: min(620px, 80vh);
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--dsw-alias-separator-primary, rgba(126,197,214,.24));
+  border-radius: 16px; background: var(--dsw-alias-bg-elevated, #0b1b24);
+  color: var(--dsw-alias-text-primary, #e8f3f6);
+  box-shadow: 0 28px 90px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.04) inset;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+[${HISTORY_ATTR}] .dhs-search {
+  display: flex; align-items: center; gap: 9px; margin: 14px 14px 8px; padding: 0 12px;
+  height: 44px; border-radius: 12px; background: var(--dsw-alias-bg-base, #07141c);
+  border: 1px solid var(--dsw-alias-separator-primary, rgba(126,197,214,.28));
+}
+[${HISTORY_ATTR}] .dhs-search svg { width: 18px; height: 18px; flex: none; color: #46e5c3; }
+[${HISTORY_ATTR}] .dhs-input {
+  flex: 1; min-width: 0; height: 40px; border: 0; outline: none; background: transparent;
+  color: inherit; font: inherit; font-size: 14px;
+}
+[${HISTORY_ATTR}] .dhs-input::placeholder { color: var(--dsw-alias-text-tertiary, #6f8992); }
+[${HISTORY_ATTR}] .dhs-clear, [${HISTORY_ATTR}] .dhs-close {
+  flex: none; border: 0; background: transparent; color: var(--dsw-alias-text-secondary, #9db4bd);
+  cursor: pointer; font: inherit; border-radius: 6px;
+}
+[${HISTORY_ATTR}] .dhs-clear { padding: 4px 7px; font-size: 12px; display: none; }
+[${HISTORY_ATTR}] .dhs-clear[data-show="1"] { display: block; }
+[${HISTORY_ATTR}] .dhs-close { width: 28px; height: 28px; font-size: 20px; line-height: 1; }
+[${HISTORY_ATTR}] .dhs-clear:hover, [${HISTORY_ATTR}] .dhs-close:hover { color: #46e5c3; background: rgba(70,229,195,.08); }
+[${HISTORY_ATTR}] .dhs-tabs { display: flex; gap: 8px; padding: 0 16px 10px; }
+[${HISTORY_ATTR}] .dhs-tab {
+  border: 0; border-radius: 999px; padding: 5px 12px; cursor: pointer;
+  background: var(--dsw-alias-bg-base, #07141c); color: var(--dsw-alias-text-secondary, #9db4bd);
+  font: inherit; font-size: 12px;
+}
+[${HISTORY_ATTR}] .dhs-tab.on { background: rgba(70,229,195,.16); color: #46e5c3; }
+[${HISTORY_ATTR}] .dhs-body { flex: 1; min-height: 0; overflow: auto; padding: 0 10px 14px; }
+[${HISTORY_ATTR}] .dhs-section-title {
+  padding: 10px 8px 5px; font-size: 11px; color: var(--dsw-alias-text-tertiary, #6f8992);
+}
+[${HISTORY_ATTR}] .dhs-row {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; margin: 0 0 1px;
+  padding: 8px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-text-secondary, #c9dde3); font: inherit; text-align: left;
+}
+[${HISTORY_ATTR}] .dhs-row:hover { background: var(--dsw-alias-bg-hover, rgba(70,229,195,.08)); }
+[${HISTORY_ATTR}] .dhs-avatar {
+  width: 24px; height: 24px; flex: none; display: grid; place-items: center;
+  border-radius: 50%; background: rgba(70,229,195,.12); color: #46e5c3;
+}
+[${HISTORY_ATTR}] .dhs-avatar svg { width: 14px; height: 14px; }
+[${HISTORY_ATTR}] .dhs-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+[${HISTORY_ATTR}] .dhs-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+[${HISTORY_ATTR}] .dhs-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--dsw-alias-text-primary, #e8f3f6); }
+[${HISTORY_ATTR}] .dhs-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--dsw-alias-text-tertiary, #6f8992); }
+[${HISTORY_ATTR}] .dhs-time { flex: none; font-size: 10px; color: var(--dsw-alias-text-tertiary, #6f8992); }
+[${HISTORY_ATTR}] .dhs-snippet {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 12px; line-height: 1.45; color: var(--dsw-alias-text-secondary, #9db4bd);
+}
+[${HISTORY_ATTR}] .dhs-body mark { background: var(--dhs-mark, rgba(70,229,195,.24)); color: inherit; border-radius: 2px; }
+[${HISTORY_ATTR}] .dhs-empty { padding: 26px 12px; text-align: center; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-text-secondary, #7d959e); }
+[${HISTORY_ATTR}] .dhs-foot { padding: 0 18px 12px; font-size: 10px; color: var(--dsw-alias-text-tertiary, #6f8992); }
+[${HISTORY_ATTR}][data-inline="1"] {
+  position: static; inset: auto; z-index: auto; display: block; width: 100%; height: 100%;
+  padding: 0; background: transparent; backdrop-filter: none;
+}
+[${HISTORY_ATTR}][data-inline="1"] .dhs-modal {
+  width: 100%; max-width: 920px; height: 100%; max-height: none; margin: 0 auto;
+  border: 0; border-radius: 0; box-shadow: none; background: transparent;
+}
+[${HISTORY_ATTR}][data-inline="1"] .dhs-search { margin: 0 0 12px; background: var(--dsw-alias-bg-layer-1, #0b1b24); }
+[${HISTORY_ATTR}][data-inline="1"] .dhs-close { display: none; }
+[${HISTORY_ATTR}][data-inline="1"] .dhs-foot { padding-left: 8px; padding-right: 8px; }
+[data-dsh-companion-history-page] { height: 100%; min-height: 0; padding: 22px 26px; box-sizing: border-box; }
+[data-dsh-companion-history-page] .dhs-page-host { height: 100%; min-height: 0; }
+@media (max-width: 560px) {
+  [${HISTORY_ATTR}] { padding: 3vh 8px 8px; }
+  [${HISTORY_ATTR}] .dhs-modal { width: 100%; max-height: 92vh; border-radius: 12px; }
+}
+`;
+    document.head.appendChild(style);
+    return style;
+}
+/** 独立历史对话搜索：标题栏按钮打开，不与 Ctrl+F 当前会话搜索共用 UI/状态。 */
+function mountHistorySearch(ctx) {
+    document.querySelector(`[${HISTORY_ATTR}]`)?.remove();
+    const style = ensureHistoryStyle();
+    let root = null;
+    let input = null;
+    let body = null;
+    let foot = null;
+    let clearBtn = null;
+    let tab = 'all';
+    let result = { sessions: [], messages: [] };
+    let loading = false;
+    let error = '';
+    let debounce = 0;
+    let sequence = 0;
+    let composing = false;
+    let controller = null;
+    let visible = false;
+    let currentHistoryColor = DEFAULT_SEARCH_COLOR;
+    function normalizeHistoryColor(raw) {
+        return raw !== null && /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : DEFAULT_SEARCH_COLOR;
+    }
+    function historyRgba(hex, alpha) {
+        const n = Number.parseInt(hex.slice(1), 16);
+        return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+    }
+    function applyHistoryColor(raw) {
+        currentHistoryColor = normalizeHistoryColor(raw);
+        if (root === null)
+            return;
+        root.style.setProperty('--dhs-mark', historyRgba(currentHistoryColor, 0.28));
+    }
+    function storedHistoryColor() {
+        try {
+            return normalizeHistoryColor(localStorage.getItem(SEARCH_COLOR_KEY));
+        }
+        catch {
+            return DEFAULT_SEARCH_COLOR;
+        }
+    }
+    applyHistoryColor(storedHistoryColor());
+    function icon(kind) {
+        return kind === 'search'
+            ? '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.3"/><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>'
+            : '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 3.5h9v7h-5l-2.5 2v-2h-1.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+    }
+    function formatTime(ms) {
+        if (!Number.isFinite(ms) || ms <= 0)
+            return '';
+        const d = new Date(ms);
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        return d.toDateString() === now.toDateString() ? time : `${d.getMonth() + 1}月${d.getDate()}日 ${time}`;
+    }
+    function marked(text, query) {
+        const fragment = document.createDocumentFragment();
+        const at = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+        if (at < 0) {
+            fragment.appendChild(document.createTextNode(text));
+            return fragment;
+        }
+        fragment.appendChild(document.createTextNode(text.slice(0, at)));
+        const mark = document.createElement('mark');
+        mark.textContent = text.slice(at, at + query.length);
+        fragment.appendChild(mark);
+        fragment.appendChild(document.createTextNode(text.slice(at + query.length)));
+        return fragment;
+    }
+    function section(title) {
+        return el('div', 'dhs-section-title', title);
+    }
+    function sessionIndex() {
+        try {
+            const snapshot = (typeof ctx.get === 'function' ? ctx.get('sessions') : undefined);
+            const current = snapshot?.list?.getSnapshot?.();
+            const byId = current?.byId ?? {};
+            const ids = Array.isArray(current?.ids) ? current.ids : Object.keys(byId);
+            return ids.map((id) => {
+                const summary = byId[id] ?? {};
+                const title = summary.title?.trim() ?? '';
+                const cwd = summary.cwd ?? '';
+                const base = cwd.split(/[\\/]/).filter(Boolean).pop() ?? '';
+                return {
+                    id,
+                    title: title !== '' ? title : base !== '' ? base : id.slice(0, 8),
+                    ...(cwd === '' ? {} : { cwd }),
+                };
+            });
+        }
+        catch {
+            return [];
+        }
+    }
+    function titleFor(id) {
+        return sessionIndex().find((entry) => entry.id === id)?.title ?? id.slice(0, 8);
+    }
+    function localSessions(query) {
+        const needle = query.toLocaleLowerCase();
+        const hits = [];
+        for (const entry of sessionIndex()) {
+            if (!entry.title.toLocaleLowerCase().includes(needle))
+                continue;
+            hits.push({
+                sessionId: entry.id,
+                title: entry.title,
+                ...(entry.cwd === undefined ? {} : { cwd: entry.cwd }),
+            });
+            if (hits.length >= 12)
+                break;
+        }
+        return hits;
+    }
+    function sessionRow(hit) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'dhs-row';
+        const avatar = el('span', 'dhs-avatar');
+        avatar.innerHTML = icon('chat');
+        const main = el('span', 'dhs-main');
+        const line = el('span', 'dhs-line');
+        const title = el('span', 'dhs-title');
+        title.appendChild(marked(hit.title, input?.value.trim() ?? ''));
+        line.appendChild(title);
+        if (hit.cwd !== undefined && hit.cwd !== '') {
+            line.appendChild(el('span', 'dhs-where', hit.cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''));
+        }
+        main.appendChild(line);
+        button.appendChild(avatar);
+        button.appendChild(main);
+        button.addEventListener('click', () => openSession(hit.sessionId, undefined, input?.value.trim() ?? ''));
+        return button;
+    }
+    function messageRow(hit) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'dhs-row';
+        const avatar = el('span', 'dhs-avatar');
+        avatar.innerHTML = icon('chat');
+        const main = el('span', 'dhs-main');
+        const line = el('span', 'dhs-line');
+        line.appendChild(el('span', 'dhs-where', hit.title));
+        line.appendChild(el('span', 'dhs-time', formatTime(hit.time)));
+        const snippet = el('span', 'dhs-snippet');
+        snippet.appendChild(marked(hit.snippet, input?.value.trim() ?? ''));
+        main.appendChild(line);
+        main.appendChild(snippet);
+        button.appendChild(avatar);
+        button.appendChild(main);
+        button.addEventListener('click', () => openMessage(hit));
+        return button;
+    }
+    function render() {
+        if (body === null)
+            return;
+        body.replaceChildren();
+        if (input === null || input.value.trim() === '') {
+            body.appendChild(el('div', 'dhs-empty', '输入关键词，搜索所有历史对话的标题和消息。'));
+            return;
+        }
+        const sessions = result.sessions;
+        const messages = result.messages;
+        const showSessions = tab === 'all' || tab === 'sessions';
+        const showMessages = tab === 'all' || tab === 'messages';
+        const sessionLimit = tab === 'all' ? 5 : sessions.length;
+        const messageLimit = tab === 'all' ? 8 : messages.length;
+        if (showSessions && sessions.length > 0) {
+            body.appendChild(section('对话'));
+            for (const hit of sessions.slice(0, sessionLimit))
+                body.appendChild(sessionRow(hit));
+        }
+        if (showMessages && messages.length > 0) {
+            body.appendChild(section('消息'));
+            for (const hit of messages.slice(0, messageLimit))
+                body.appendChild(messageRow(hit));
+        }
+        if (loading) {
+            body.appendChild(el('div', 'dhs-empty', '搜索中…'));
+            return;
+        }
+        if (error !== '') {
+            body.appendChild(el('div', 'dhs-empty', error));
+            return;
+        }
+        if ((showSessions && sessions.length > 0) ||
+            (showMessages && messages.length > 0)) {
+            return;
+        }
+        body.appendChild(el('div', 'dhs-empty', '没有找到匹配的历史对话。试试更短的关键词。'));
+    }
+    function setTab(next) {
+        tab = next;
+        root?.querySelectorAll('.dhs-tab').forEach((button) => {
+            button.classList.toggle('on', button.dataset.tab === next);
+        });
+        render();
+    }
+    function runSearch() {
+        if (input === null)
+            return;
+        const query = input.value.trim();
+        sequence++;
+        const mySequence = sequence;
+        controller?.abort();
+        controller = null;
+        window.clearTimeout(debounce);
+        loading = false;
+        error = '';
+        result = { sessions: [], messages: [] };
+        if (query === '') {
+            render();
+            return;
+        }
+        // 标题匹配在本地瞬时完成，先显示「对话」；消息由 Node 扫描后补上。
+        result = { sessions: localSessions(query), messages: [] };
+        loading = true;
+        render();
+        const ac = new AbortController();
+        controller = ac;
+        void (async () => {
+            try {
+                if (historySearchServerUrl === '') {
+                    const found = await discoverServer();
+                    if (found === null)
+                        throw new Error('伴侣本地服务不可用');
+                    historySearchServerUrl = found.url;
+                }
+                const seen = new Set();
+                const allMessages = [];
+                let cursor = 0;
+                for (;;) {
+                    const res = await fetch(`${historySearchServerUrl}/api/history-search?q=${encodeURIComponent(query)}&cursor=${cursor}`, { signal: ac.signal }).catch((reason) => {
+                        historySearchServerUrl = '';
+                        throw reason;
+                    });
+                    if (!res.ok)
+                        throw new Error(`本地搜索服务返回 ${res.status}`);
+                    const data = (await res.json());
+                    if (mySequence !== sequence)
+                        return;
+                    if (typeof data.error === 'string' && data.error !== '')
+                        throw new Error(data.error);
+                    for (const hit of Array.isArray(data.messages) ? data.messages : []) {
+                        const key = `${hit.sessionId}:${String(hit.seq ?? hit.time)}:${hit.type}`;
+                        if (seen.has(key))
+                            continue;
+                        seen.add(key);
+                        allMessages.push({ ...hit, title: hit.title || titleFor(hit.sessionId) });
+                    }
+                    result = {
+                        sessions: localSessions(query),
+                        messages: allMessages,
+                        done: data.done === true,
+                    };
+                    if (foot !== null)
+                        foot.textContent = '正在搜索全部会话…';
+                    render();
+                    if (data.done === true || typeof data.nextCursor !== 'number' || data.nextCursor <= cursor)
+                        break;
+                    cursor = data.nextCursor;
+                    // 让出一帧，避免连续分页把渲染和宿主事件循环堵住。
+                    await new Promise((resolve) => window.setTimeout(resolve, 0));
+                    if (mySequence !== sequence)
+                        return;
+                }
+                if (mySequence !== sequence)
+                    return;
+                loading = false;
+                result = { ...result, done: true };
+                if (foot !== null)
+                    foot.textContent = '搜索完成 · 点击消息打开并跳到对应轮次';
+                render();
+            }
+            catch (reason) {
+                if (mySequence !== sequence)
+                    return;
+                loading = false;
+                error = `历史搜索失败：${reason instanceof Error ? reason.message : String(reason)}`;
+                if (foot !== null)
+                    foot.textContent = '搜索中断 · 点击消息打开并跳到对应轮次';
+                render();
+            }
+        })();
+    }
+    function scheduleSearch() {
+        window.clearTimeout(debounce);
+        debounce = window.setTimeout(() => {
+            if (!composing)
+                runSearch();
+        }, 350);
+    }
+    function openSession(sessionId, turn, query = '') {
+        let workspace = null;
+        try {
+            workspace = (typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : undefined);
+        }
+        catch {
+            workspace = null;
+        }
+        if (typeof workspace?.openSession !== 'function') {
+            error = '无法打开会话：宿主导航服务不可用';
+            render();
+            return;
+        }
+        try {
+            workspace.openSession(sessionId);
+        }
+        catch (reason) {
+            error = `无法打开会话：${reason instanceof Error ? reason.message : String(reason)}`;
+            render();
+            return;
+        }
+        close();
+        if (typeof turn === 'number')
+            jumpToTurn(sessionId, turn, query);
+        else if (query !== '')
+            highlightWhenReady(sessionId, query);
+    }
+    async function fetchTurn(sessionId, seq) {
+        try {
+            if (historySearchServerUrl === '') {
+                const found = await discoverServer();
+                if (found === null)
+                    return undefined;
+                historySearchServerUrl = found.url;
+            }
+            const res = await fetch(`${historySearchServerUrl}/api/history-turn?sessionId=${encodeURIComponent(sessionId)}&seq=${seq}`);
+            if (!res.ok)
+                return undefined;
+            const data = (await res.json());
+            return typeof data.turn === 'number' ? data.turn : undefined;
+        }
+        catch {
+            return undefined;
+        }
+    }
+    function openMessage(hit) {
+        const query = input?.value.trim() ?? '';
+        if (typeof hit.turn === 'number') {
+            openSession(hit.sessionId, hit.turn, query);
+            return;
+        }
+        // 先打开会话，轮次解析只在这条消息上做一次，不拖慢整次搜索。
+        openSession(hit.sessionId, undefined, query);
+        if (typeof hit.seq !== 'number')
+            return;
+        void fetchTurn(hit.sessionId, hit.seq).then((turn) => {
+            if (typeof turn === 'number')
+                jumpToTurn(hit.sessionId, turn, query);
+        });
+    }
+    function highlightQueryInConversation(query) {
+        const needle = query.trim();
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const registry = CSS.highlights;
+        const HighlightCtor = window.Highlight;
+        if (needle === '' || scroll === null || registry === undefined || HighlightCtor === undefined)
+            return;
+        const ranges = [];
+        const lower = needle.toLocaleLowerCase();
+        const walker = document.createTreeWalker(scroll, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                const parent = node.parentElement;
+                if (parent === null)
+                    return NodeFilter.FILTER_REJECT;
+                if (parent.closest('button, [data-composer-seat], [hidden], [aria-hidden="true"]') !== null) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            },
+        });
+        while (ranges.length < 300) {
+            const node = walker.nextNode();
+            if (node === null)
+                break;
+            const text = node.nodeValue ?? '';
+            let at = text.toLocaleLowerCase().indexOf(lower);
+            while (at >= 0 && ranges.length < 300) {
+                const range = document.createRange();
+                range.setStart(node, at);
+                range.setEnd(node, at + needle.length);
+                ranges.push(range);
+                at = text.toLocaleLowerCase().indexOf(lower, at + needle.length);
+            }
+        }
+        try {
+            registry.delete(SEARCH_CURRENT_HIGHLIGHT);
+            if (ranges.length === 0) {
+                registry.delete(SEARCH_HIGHLIGHT);
+                return;
+            }
+            registry.set(SEARCH_HIGHLIGHT, new HighlightCtor(...ranges));
+            const first = ranges[0]?.getClientRects()[0];
+            if (first !== undefined) {
+                const box = scroll.getBoundingClientRect();
+                scroll.scrollBy({
+                    top: first.top - box.top - box.height / 2,
+                    behavior: 'smooth',
+                });
+            }
+        }
+        catch {
+            /* DOM 重绘时 Range 失效，忽略即可 */
+        }
+    }
+    function highlightWhenReady(sessionId, query, attempt = 0) {
+        const content = document.querySelector('[data-conversation-content]') ??
+            document.querySelector('[data-conversation-scroll]');
+        const current = content?.getAttribute('data-conversation-session') ?? '';
+        if (current !== sessionId || document.querySelector('[data-conversation-scroll]') === null) {
+            if (attempt < 30)
+                window.setTimeout(() => highlightWhenReady(sessionId, query, attempt + 1), 150);
+            return;
+        }
+        highlightQueryInConversation(query);
+    }
+    function clickTurnRail(turn) {
+        const nav = [...document.querySelectorAll('nav')].find((node) => {
+            const label = node.getAttribute('aria-label') ?? '';
+            return label === '轮次导航' || label === 'Turn navigation';
+        });
+        if (nav === undefined)
+            return false;
+        const labels = [
+            `跳转到第 ${turn} 轮`,
+            `加载并跳转到第 ${turn} 轮`,
+            `Jump to turn ${turn}`,
+            `Load and jump to turn ${turn}`,
+        ];
+        const button = [...nav.querySelectorAll('button[aria-label]')].find((node) => labels.includes(node.getAttribute('aria-label') ?? '') && node.offsetParent !== null);
+        if (button !== undefined) {
+            button.click();
+            return true;
+        }
+        const marks = [...nav.querySelectorAll('button[data-index]')];
+        let offset;
+        for (const mark of marks) {
+            const match = (mark.getAttribute('aria-label') ?? '').match(/(\d+)/);
+            const index = Number(mark.dataset.index);
+            if (match !== null && Number.isSafeInteger(index)) {
+                offset = Number(match[1]) - index;
+                break;
+            }
+        }
+        if (offset === undefined)
+            return false;
+        const scroller = [...nav.querySelectorAll('div')].find((node) => node.scrollHeight > node.clientHeight + 2);
+        if (scroller === undefined)
+            return false;
+        scroller.scrollTop = Math.max(0, (turn - offset) * 10 - scroller.clientHeight / 2);
+        return false;
+    }
+    function jumpToTurn(sessionId, turn, query, attempt = 0) {
+        const content = document.querySelector('[data-conversation-content]') ??
+            document.querySelector('[data-conversation-scroll]');
+        const current = content?.getAttribute('data-conversation-session') ?? '';
+        if (current !== sessionId || document.querySelector('[data-conversation-scroll]') === null) {
+            if (attempt < 30)
+                window.setTimeout(() => jumpToTurn(sessionId, turn, query, attempt + 1), 150);
+            return;
+        }
+        const row = [...document.querySelectorAll(`[data-chat-turn="${turn}"]`)].find((node) => node.offsetParent !== null);
+        if (row !== undefined) {
+            row.scrollIntoView({ block: 'start' });
+            highlightQueryInConversation(query);
+            return;
+        }
+        if (clickTurnRail(turn)) {
+            if (attempt < 30)
+                window.setTimeout(() => jumpToTurn(sessionId, turn, query, attempt + 1), 180);
+            return;
+        }
+        if (attempt < 30)
+            window.setTimeout(() => jumpToTurn(sessionId, turn, query, attempt + 1), 150);
+    }
+    function createPanel() {
+        if (root !== null)
+            return;
+        root = document.createElement('div');
+        root.setAttribute(HISTORY_ATTR, '');
+        root.setAttribute('data-dsh-plugin', 'dsh-companion');
+        root.setAttribute('data-dsh-part', 'history-search');
+        root.setAttribute('role', 'dialog');
+        root.setAttribute('aria-modal', 'true');
+        root.setAttribute('aria-label', '搜索历史对话');
+        const modal = el('div', 'dhs-modal');
+        const searchRow = el('div', 'dhs-search');
+        const searchIcon = el('span', '');
+        searchIcon.innerHTML = icon('search');
+        input = document.createElement('input');
+        input.className = 'dhs-input';
+        input.type = 'search';
+        input.placeholder = '搜索历史对话';
+        input.setAttribute('aria-label', '搜索历史对话');
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'dhs-clear';
+        clearBtn.textContent = '清空';
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'dhs-close';
+        closeBtn.textContent = '×';
+        closeBtn.title = '关闭（Esc）';
+        closeBtn.setAttribute('aria-label', '关闭历史搜索');
+        searchRow.appendChild(searchIcon);
+        searchRow.appendChild(input);
+        searchRow.appendChild(clearBtn);
+        searchRow.appendChild(closeBtn);
+        const tabs = el('div', 'dhs-tabs');
+        for (const [id, label] of [['all', '全部'], ['messages', '消息'], ['sessions', '对话']]) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'dhs-tab';
+            button.dataset.tab = id;
+            button.textContent = label;
+            button.addEventListener('click', () => setTab(id));
+            tabs.appendChild(button);
+        }
+        body = el('div', 'dhs-body');
+        body.setAttribute('role', 'list');
+        foot = el('div', 'dhs-foot', '点击消息打开会话并跳到对应轮次');
+        modal.appendChild(searchRow);
+        modal.appendChild(tabs);
+        modal.appendChild(body);
+        modal.appendChild(foot);
+        root.appendChild(modal);
+        root.addEventListener('click', (event) => {
+            if (event.target === root && root?.dataset.inline !== '1')
+                close();
+        });
+        input.addEventListener('input', () => {
+            if (clearBtn !== null)
+                clearBtn.dataset.show = input?.value.trim() === '' ? '0' : '1';
+            if (!composing)
+                scheduleSearch();
+        });
+        input.addEventListener('compositionstart', () => {
+            composing = true;
+        });
+        input.addEventListener('compositionend', () => {
+            composing = false;
+            scheduleSearch();
+        });
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && root?.dataset.inline !== '1') {
+                event.preventDefault();
+                event.stopPropagation();
+                close();
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const first = body?.querySelector('.dhs-row');
+                first?.click();
+            }
+        });
+        clearBtn.addEventListener('click', () => {
+            if (input === null || clearBtn === null)
+                return;
+            input.value = '';
+            clearBtn.dataset.show = '0';
+            runSearch();
+            input.focus();
+        });
+        closeBtn.addEventListener('click', close);
+        setTab('all');
+        applyHistoryColor(currentHistoryColor);
+    }
+    function openIn(host) {
+        if (!host.isConnected)
+            return false;
+        createPanel();
+        if (root === null || input === null)
+            return false;
+        if (root.parentElement !== host)
+            host.appendChild(root);
+        root.dataset.inline = '1';
+        root.removeAttribute('aria-modal');
+        visible = true;
+        root.dataset.open = '1';
+        if (foot !== null)
+            foot.textContent = '点击消息打开会话并跳到对应轮次';
+        applyHistoryColor(storedHistoryColor());
+        input.focus({ preventScroll: true });
+        if (input.value.trim() !== '')
+            runSearch();
+        else
+            render();
+        return true;
+    }
+    function close() {
+        visible = false;
+        if (root === null)
+            return;
+        root.dataset.open = '0';
+        controller?.abort();
+        controller = null;
+        window.clearTimeout(debounce);
+        input?.blur();
+        root.remove();
+    }
+    const onKeyDown = (event) => {
+        if (visible && root?.dataset.inline !== '1' && event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+        }
+    };
+    const onHistoryColorMessage = (event) => {
+        const data = event.data;
+        if (data === null || typeof data !== 'object')
+            return;
+        if (data.type === 'dsh-companion:search-color' && typeof data.color === 'string') {
+            applyHistoryColor(data.color);
+        }
+    };
+    window.addEventListener('message', onHistoryColorMessage);
+    document.addEventListener('keydown', onKeyDown, true);
+    openHistorySearchIn = openIn;
+    closeHistorySearch = close;
+    return () => {
+        document.removeEventListener('keydown', onKeyDown, true);
+        window.removeEventListener('message', onHistoryColorMessage);
+        controller?.abort();
+        controller = null;
+        window.clearTimeout(debounce);
+        if (openHistorySearchIn === openIn)
+            openHistorySearchIn = null;
+        if (closeHistorySearch === close)
+            closeHistorySearch = null;
+        root?.remove();
+        root = null;
+        input = null;
+        body = null;
+        foot = null;
+        clearBtn = null;
+        style.remove();
+    };
+}
+/** 侧栏「历史搜索」入口：挂在「插件」上方，点开是独立的搜索页。 */
+function mountHistorySidebarEntry(ctx, modRequire) {
+    const slots = ctx.slots;
+    if (slots === undefined || openHistorySearchIn === null)
+        return;
+    let React = null;
+    try {
+        React = modRequire !== undefined ? modRequire('react') : null;
+    }
+    catch {
+        React = null;
+    }
+    if (React === null || typeof React.createElement !== 'function')
+        return;
+    const h = React.createElement;
+    const panelId = 'companion-history';
+    function HistoryIcon(props) {
+        const size = typeof props?.size === 'number' ? props.size : 16;
+        return h('svg', {
+            width: size,
+            height: size,
+            viewBox: '0 0 16 16',
+            fill: 'none',
+            'aria-hidden': 'true',
+        }, h('circle', { cx: 7, cy: 7, r: 4.5, stroke: 'currentColor', strokeWidth: 1.3 }), h('path', {
+            d: 'm10.4 10.4 3.1 3.1',
+            stroke: 'currentColor',
+            strokeWidth: 1.3,
+            strokeLinecap: 'round',
+        }), h('path', {
+            d: 'M7 4.6V7l1.7 1',
+            stroke: 'currentColor',
+            strokeWidth: 1.1,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+        }));
+    }
+    function HistoryPage() {
+        const hostRef = React.useRef(null);
+        React.useEffect(() => {
+            const host = hostRef.current;
+            if (host !== null)
+                openHistorySearchIn?.(host);
+            return () => closeHistorySearch?.();
+        }, []);
+        return h('div', { 'data-dsh-companion-history-page': '' }, h('div', { className: 'dhs-page-host', ref: hostRef }));
+    }
+    try {
+        ctx.effect(() => {
+            const disposeList = slots.inject('sidebar.panellist', () => slots.register({
+                name: 'sidebar.panellist',
+                id: panelId,
+                // 插件是 0，自动化任务是 10；-100 让它排在「插件」上方。
+                order: -100,
+                label: '历史搜索',
+            }, HistoryIcon));
+            const disposeMain = slots.inject('main', () => slots.register({
+                name: 'main',
+                key: panelId,
+            }, HistoryPage));
+            return () => {
+                if (typeof disposeList === 'function')
+                    disposeList();
+                if (typeof disposeMain === 'function')
+                    disposeMain();
+            };
+        });
+    }
+    catch {
+        /* 旧宿主没有侧栏面板槽位时静默降级。 */
+    }
+}
 /** 对话标题栏 utilities 槽位放一个搜索图标；点击等价 Ctrl+F，不抢快捷键。 */
 function mountSearchHeaderButton(ctx, modRequire) {
     const slots = ctx.slots;
@@ -2272,6 +3087,10 @@ const entry = {
             const disposeSearch = mountConversationSearch();
             ctx.effect(() => disposeSearch);
             mountSearchHeaderButton(ctx, modRequire);
+            // 独立历史对话搜索：侧栏「历史搜索」入口（在「插件」上方），自己独立的搜索页。
+            const disposeHistory = mountHistorySearch(ctx);
+            ctx.effect(() => disposeHistory);
+            mountHistorySidebarEntry(ctx, modRequire);
             // 官方快捷键注册：设置里的快捷键列表能看到「搜索当前会话」并改绑。
             mountConversationSearchShortcut(ctx);
         }

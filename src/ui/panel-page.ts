@@ -1195,9 +1195,9 @@ export function panelPageHTML(): string {
                 </div>
                 <div class="settings-grid">
                   <div class="setting-card" id="card-search-color">
-                    <div class="sc-head"><h4>搜索高亮颜色<button class="info" type="button" data-tip="只影响 DSH 伴侣对话搜索的命中标记：页面高亮和结果片段里的关键词会同步变色。颜色保存在当前 DSH 设备。">i</button></h4></div>
+                    <div class="sc-head"><h4>搜索高亮颜色<button class="info" type="button" data-tip="同时影响当前会话搜索和历史搜索的命中标记：对话正文里的关键词和结果片段里的关键词会同步变色。颜色保存在当前 DSH 设备。">i</button></h4></div>
                     <div class="setting-row">
-                      <span class="label">标记颜色<span class="hint">页面与结果片段同步</span></span>
+                      <span class="label">标记颜色<span class="hint">对话正文与结果片段同步</span></span>
                       <span class="control"><input class="color-pick" type="color" id="setSearchColor" value="#f0b64a" aria-label="搜索高亮颜色"></span>
                     </div>
                   </div>

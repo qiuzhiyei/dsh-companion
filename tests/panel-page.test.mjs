@@ -169,6 +169,8 @@ test('设置页：五组 + 即时生效 + 官方价 + 数据保留 + 本插件�
   assert.ok(!html.includes('我的快捷键'), '快捷键页不应再出现「我的快捷键」标题')
   assert.ok(!html.includes('只显示 DSH 伴侣的快捷键'), '快捷键页不应再保留长说明')
   assert.ok(html.includes('id="card-search-color"') && html.includes('id="setSearchColor"'), '缺搜索高亮颜色设置')
+  assert.ok(html.includes('同时影响当前会话搜索和历史搜索'), '高亮颜色说明应覆盖两套搜索')
+  assert.ok(html.includes('对话正文与结果片段同步'), '高亮颜色应说明命中内容同步')
   assert.ok(html.includes('id="card-search-results"') && html.includes('id="setResultsEnabled"') && html.includes('id="setResultLimit"'), '缺搜索候选开关/数量设置')
   assert.ok(html.includes('dsh-companion:search-color') && html.includes('dsh-companion:search-results'), '搜索设置应下发到搜索浮层')
   assert.ok(html.includes('postMessage('), '搜索设置应通过 postMessage 下发')
