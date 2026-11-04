@@ -37,6 +37,10 @@ type ClientCtx = {
     inject(name: string, factory: () => unknown): ClientDisposer | void
     register(entry: Record<string, unknown>, component: unknown): ClientDisposer | void
   }
+  /** 宿主快捷键服务（dsh-client-shortcuts）；用于把 Ctrl+F 注册进设置里的快捷键列表。 */
+  shortcuts?: {
+    register(command: Record<string, unknown>): ClientDisposer | void
+  }
   /** 无 inject 读取宿主服务（connection / sessions）；旧 GUI 没有时返回 undefined。 */
   get?: (name: string) => unknown
 }
@@ -1411,6 +1415,878 @@ function mountSessionDeleteAction(ctx: ClientCtx, modRequire?: (id: string) => a
   })
 }
 
+/* ---------- 对话内搜索（Ctrl+F） ---------- */
+
+const SEARCH_ATTR = 'data-dsh-companion-find'
+const SEARCH_STYLE_ATTR = 'data-dsh-companion-find-style'
+const SEARCH_COLOR_STYLE_ATTR = 'data-dsh-companion-find-color'
+const SEARCH_COLOR_KEY = 'dsh-companion.find-color'
+const SEARCH_RESULTS_KEY = 'dsh-companion.find-results'
+const DEFAULT_SEARCH_COLOR = '#f0b64a'
+const DEFAULT_SEARCH_RESULT_LIMIT = 3
+const MIN_SEARCH_RESULT_LIMIT = 1
+const MAX_SEARCH_RESULT_LIMIT = 10
+const SEARCH_HIGHLIGHT = 'dsh-companion-find'
+const SEARCH_CURRENT_HIGHLIGHT = 'dsh-companion-find-current'
+
+/** 供对话标题栏搜索按钮复用 Ctrl+F 的打开逻辑。 */
+let openConversationSearch: (() => boolean) | null = null
+
+interface SearchTextSlice {
+  node: Text
+  start: number
+  end: number
+}
+
+interface SearchHit {
+  range: Range
+  snippet: string
+}
+
+/** 只给对话页注入一次样式；颜色优先跟 DSH 令牌，旧 GUI 用深海回退。 */
+function ensureSearchStyle(): HTMLStyleElement {
+  const old = document.querySelector<HTMLStyleElement>(`[${SEARCH_STYLE_ATTR}]`)
+  if (old !== null) return old
+  const style = document.createElement('style')
+  style.setAttribute(SEARCH_STYLE_ATTR, '')
+  style.textContent = `
+[${SEARCH_ATTR}] {
+  position: fixed;
+  z-index: 10007;
+  box-sizing: border-box;
+  width: min(300px, calc(100vw - 16px));
+  overflow: hidden;
+  border-radius: 11px;
+  border: 1px solid var(--dsw-alias-separator-primary, rgba(126,197,214,.26));
+  background: var(--dsw-alias-bg-elevated, #07141c);
+  color: var(--dsw-alias-text-primary, #e8f3f6);
+  box-shadow: 0 18px 60px rgba(0,0,0,.55), 0 1px 0 rgba(255,255,255,.04) inset;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+[${SEARCH_ATTR}] .dcs-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--dsw-alias-separator-primary, rgba(126,197,214,.16));
+}
+[${SEARCH_ATTR}] .dcs-icon { width: 16px; height: 16px; flex: none; color: #46e5c3; display: grid; place-items: center; }
+[${SEARCH_ATTR}] .dcs-icon svg { width: 16px; height: 16px; display: block; }
+[${SEARCH_ATTR}] input {
+  flex: 1; min-width: 0; height: 24px; padding: 0; margin: 0;
+  border: 0; outline: none; background: transparent;
+  color: inherit; font: inherit; font-size: 13px;
+}
+[${SEARCH_ATTR}] input::placeholder { color: var(--dsw-alias-text-tertiary, #6f8992); }
+[${SEARCH_ATTR}] .dcs-count {
+  flex: none; min-width: 44px; text-align: right;
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 10.5px; color: var(--dsw-alias-text-secondary, #9db4bd);
+  font-variant-numeric: tabular-nums;
+}
+[${SEARCH_ATTR}] .dcs-btn {
+  width: 24px; height: 24px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 5px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-text-secondary, #9db4bd); font: inherit; font-size: 14px;
+}
+[${SEARCH_ATTR}] .dcs-btn:hover { background: var(--dsw-alias-bg-hover, rgba(70,229,195,.1)); color: #46e5c3; }
+[${SEARCH_ATTR}] .dcs-btn:disabled { opacity: .3; cursor: default; }
+[${SEARCH_ATTR}] .dcs-results { max-height: min(360px, 55vh); overflow: auto; padding: 4px; }
+[${SEARCH_ATTR}] .dcs-empty {
+  padding: 14px 12px; color: var(--dsw-alias-text-secondary, #7d959e);
+  font-size: 12px; line-height: 1.55;
+}
+[${SEARCH_ATTR}] .dcs-result {
+  display: block; width: 100%; margin: 0; padding: 7px 8px;
+  border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+  text-align: left; color: var(--dsw-alias-text-secondary, #c9dde3);
+  font: inherit; font-size: 12px; line-height: 1.5;
+}
+[${SEARCH_ATTR}] .dcs-result:hover { background: var(--dsw-alias-bg-hover, rgba(70,229,195,.08)); }
+[${SEARCH_ATTR}] .dcs-result[aria-current="true"] {
+  background: rgba(70,229,195,.13);
+  color: var(--dsw-alias-text-primary, #eafff9);
+}
+[${SEARCH_ATTR}] .dcs-snippet { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[${SEARCH_ATTR}] .dcs-snippet mark {
+  padding: 0 1px; border-radius: 2px;
+  background: rgba(240,182,74,.26); color: inherit;
+}
+[${SEARCH_ATTR}] .dcs-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 8px 6px; border-top: 1px solid var(--dsw-alias-separator-primary, rgba(126,197,214,.1));
+  color: var(--dsw-alias-text-tertiary, #6f8992); font-size: 9.5px;
+}
+[${SEARCH_ATTR}] .dcs-foot-hint {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[${SEARCH_ATTR}] .dcs-more { padding: 5px 8px 2px; color: var(--dsw-alias-text-tertiary, #6f8992); font-size: 10px; }
+::highlight(${SEARCH_HIGHLIGHT}) { background-color: rgba(240,182,74,.34); color: inherit; }
+::highlight(${SEARCH_CURRENT_HIGHLIGHT}) { background-color: rgba(70,229,195,.58); color: #031015; }
+[data-dsh-companion-find-button] {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  padding: 0; border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-text-secondary, #9db4bd);
+}
+[data-dsh-companion-find-button]:hover {
+  background: var(--dsw-alias-bg-hover, rgba(70,229,195,.1));
+  color: #46e5c3;
+}
+[data-dsh-companion-find-button] svg { width: 16px; height: 16px; display: block; }
+`
+  document.head.appendChild(style)
+  return style
+}
+
+/** Ctrl+F：在当前对话滚动区里找文本，点结果滚到对应位置。 */
+function mountConversationSearch(): ClientDisposer {
+  document.querySelector(`[${SEARCH_ATTR}]`)?.remove()
+  document.querySelector(`[${SEARCH_COLOR_STYLE_ATTR}]`)?.remove()
+  const style = ensureSearchStyle()
+
+  let panel: HTMLElement | null = null
+  let input: HTMLInputElement | null = null
+  let count: HTMLElement | null = null
+  let results: HTMLElement | null = null
+  let prevBtn: HTMLButtonElement | null = null
+  let nextBtn: HTMLButtonElement | null = null
+  let colorStyle: HTMLStyleElement | null = null
+  let currentSearchColor = DEFAULT_SEARCH_COLOR
+  let showResultList = true
+  let resultLimit = DEFAULT_SEARCH_RESULT_LIMIT
+  let matches: SearchHit[] = []
+  let current = -1
+  let composing = false
+  let debounce = 0
+  let openSession = ''
+
+  function normalizeSearchColor(raw: string | null): string {
+    return raw !== null && /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : DEFAULT_SEARCH_COLOR
+  }
+
+  function colorParts(hex: string): [number, number, number] {
+    const n = Number.parseInt(hex.slice(1), 16)
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  }
+
+  function rgbaOf(hex: string, alpha: number): string {
+    const [r, g, b] = colorParts(hex)
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+
+  function contrastOn(hex: string): string {
+    const [r, g, b] = colorParts(hex)
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#031015' : '#ffffff'
+  }
+
+  function applySearchColor(raw: string, persist: boolean): void {
+    const color = normalizeSearchColor(raw)
+    currentSearchColor = color
+    if (colorStyle === null) {
+      colorStyle = document.createElement('style')
+      colorStyle.setAttribute(SEARCH_COLOR_STYLE_ATTR, '')
+      document.head.appendChild(colorStyle)
+    }
+    colorStyle.textContent = `
+::highlight(${SEARCH_HIGHLIGHT}) { background-color: ${rgbaOf(color, 0.34)}; color: inherit; }
+::highlight(${SEARCH_CURRENT_HIGHLIGHT}) { background-color: ${rgbaOf(color, 0.62)}; color: ${contrastOn(color)}; }
+[${SEARCH_ATTR}] .dcs-snippet mark { background: ${rgbaOf(color, 0.26)}; color: inherit; }
+`
+    if (persist) {
+      try {
+        localStorage.setItem(SEARCH_COLOR_KEY, color)
+      } catch {
+        /* 隐私模式/禁用存储时只影响持久化 */
+      }
+    }
+  }
+
+  function storedSearchColor(): string {
+    try {
+      return normalizeSearchColor(localStorage.getItem(SEARCH_COLOR_KEY))
+    } catch {
+      return DEFAULT_SEARCH_COLOR
+    }
+  }
+
+  function normalizeResultLimit(raw: unknown): number {
+    const n = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(n)) return DEFAULT_SEARCH_RESULT_LIMIT
+    return Math.min(MAX_SEARCH_RESULT_LIMIT, Math.max(MIN_SEARCH_RESULT_LIMIT, Math.round(n)))
+  }
+
+  function storedResultPrefs(): { show: boolean; limit: number } {
+    try {
+      const raw = localStorage.getItem(SEARCH_RESULTS_KEY)
+      if (raw === null) return { show: true, limit: DEFAULT_SEARCH_RESULT_LIMIT }
+      const parsed = JSON.parse(raw) as { show?: unknown; limit?: unknown }
+      return { show: parsed.show !== false, limit: normalizeResultLimit(parsed.limit) }
+    } catch {
+      return { show: true, limit: DEFAULT_SEARCH_RESULT_LIMIT }
+    }
+  }
+
+  function applySearchResults(show: boolean, rawLimit: unknown, persist: boolean): void {
+    showResultList = show === true
+    resultLimit = normalizeResultLimit(rawLimit)
+    if (results !== null) results.style.display = showResultList ? '' : 'none'
+    if (persist) {
+      try {
+        localStorage.setItem(SEARCH_RESULTS_KEY, JSON.stringify({ show: showResultList, limit: resultLimit }))
+      } catch {
+        /* 隐私模式/禁用存储时只影响持久化 */
+      }
+    }
+    renderResults()
+  }
+
+  /** 面板「设置 → 快捷键」通过 postMessage 改搜索高亮颜色与候选列表。 */
+  const onSearchColorMessage = (ev: MessageEvent): void => {
+    const data = ev.data as { type?: unknown; color?: unknown; show?: unknown; limit?: unknown } | null
+    if (data === null || typeof data !== 'object' || typeof data.type !== 'string') return
+    if (data.type === 'dsh-companion:search-color') {
+      if (typeof data.color === 'string') applySearchColor(data.color, true)
+      return
+    }
+    if (data.type === 'dsh-companion:search-results') {
+      applySearchResults(data.show === true, data.limit, true)
+      return
+    }
+    if (data.type === 'dsh-companion:search-color:request') {
+      const source = ev.source as Window | null
+      source?.postMessage({ type: 'dsh-companion:search-color', color: currentSearchColor }, '*')
+      return
+    }
+    if (data.type === 'dsh-companion:search-results:request') {
+      const source = ev.source as Window | null
+      source?.postMessage(
+        { type: 'dsh-companion:search-results', show: showResultList, limit: resultLimit },
+        '*',
+      )
+    }
+  }
+  window.addEventListener('message', onSearchColorMessage)
+
+  const resultPrefs = storedResultPrefs()
+  showResultList = resultPrefs.show
+  resultLimit = resultPrefs.limit
+
+  applySearchColor(storedSearchColor(), false)
+
+  function scroller(): HTMLElement | null {
+    const el = document.querySelector<HTMLElement>('[data-conversation-scroll]')
+    if (el === null) return null
+    const rect = el.getBoundingClientRect()
+    return rect.width > 1 && rect.height > 1 ? el : null
+  }
+
+  function contentRoot(): HTMLElement | null {
+    const el = document.querySelector<HTMLElement>('[data-conversation-content]')
+    return el ?? scroller()
+  }
+
+  function collectText(root: HTMLElement): { text: string; slices: SearchTextSlice[] } {
+    const slices: SearchTextSlice[] = []
+    let text = ''
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node: Node): number {
+        const parent = node.parentElement
+        if (parent === null || node.nodeValue === null || node.nodeValue === '') {
+          return NodeFilter.FILTER_REJECT
+        }
+        if (
+          parent.closest(
+            '[data-composer-seat], [aria-hidden="true"], [hidden], script, style, noscript, input, textarea, button, [role="button"]',
+          ) !== null
+        ) {
+          return NodeFilter.FILTER_REJECT
+        }
+        return NodeFilter.FILTER_ACCEPT
+      },
+    })
+    let node = walker.nextNode()
+    while (node !== null) {
+      const value = node.nodeValue ?? ''
+      if (value !== '') {
+        slices.push({ node: node as Text, start: text.length, end: text.length + value.length })
+        text += value
+      }
+      node = walker.nextNode()
+    }
+    return { text, slices }
+  }
+
+  function locate(slices: SearchTextSlice[], offset: number): { node: Text; offset: number } | null {
+    if (slices.length === 0) return null
+    let lo = 0
+    let hi = slices.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (offset < slices[mid].end) hi = mid
+      else lo = mid + 1
+    }
+    const slice = slices[lo]
+    const value = slice.node.nodeValue ?? ''
+    return {
+      node: slice.node,
+      offset: Math.max(0, Math.min(value.length, offset - slice.start)),
+    }
+  }
+
+  function rangeAt(slices: SearchTextSlice[], start: number, end: number): Range | null {
+    const from = locate(slices, start)
+    const to = locate(slices, end)
+    if (from === null || to === null) return null
+    const range = document.createRange()
+    try {
+      range.setStart(from.node, from.offset)
+      range.setEnd(to.node, to.offset)
+      return range.collapsed ? null : range
+    } catch {
+      return null
+    }
+  }
+
+  function visible(range: Range): boolean {
+    try {
+      return range.getClientRects().length > 0
+    } catch {
+      return false
+    }
+  }
+
+  function snippetOf(text: string, at: number, length: number): string {
+    // 只取命中词前后各 3 个字符，避免结果行又宽又长。
+    const before = text.slice(Math.max(0, at - 3), at).replace(/\s+/g, ' ')
+    const hit = text.slice(at, at + length).replace(/\s+/g, ' ')
+    const after = text.slice(at + length, at + length + 3).replace(/\s+/g, ' ')
+    return `${at > 3 ? '…' : ''}${before}${hit}${after}${at + length < text.length ? '…' : ''}`
+  }
+
+  function highlightRegistry(): { set(name: string, value: unknown): void; delete(name: string): void } | null {
+    const api = (CSS as unknown as { highlights?: { set(name: string, value: unknown): void; delete(name: string): void } }).highlights
+    return api ?? null
+  }
+
+  function clearHighlights(): void {
+    const registry = highlightRegistry()
+    if (registry === null) return
+    try {
+      registry.delete(SEARCH_HIGHLIGHT)
+      registry.delete(SEARCH_CURRENT_HIGHLIGHT)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function applyHighlights(): void {
+    const registry = highlightRegistry()
+    const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight
+    if (registry === null || HighlightCtor === undefined) return
+    try {
+      registry.delete(SEARCH_HIGHLIGHT)
+      registry.delete(SEARCH_CURRENT_HIGHLIGHT)
+      if (matches.length > 0) {
+        registry.set(SEARCH_HIGHLIGHT, new HighlightCtor(...matches.map((m) => m.range)))
+      }
+      if (current >= 0 && matches[current] !== undefined) {
+        registry.set(SEARCH_CURRENT_HIGHLIGHT, new HighlightCtor(matches[current].range))
+      }
+    } catch {
+      /* DOM 重绘时 Range 失效，忽略即可 */
+    }
+  }
+
+  function jump(index: number): void {
+    const hit = matches[index]
+    const scroll = scroller()
+    if (hit === undefined || scroll === null) return
+    try {
+      const rects = hit.range.getClientRects()
+      const rect = rects[0]
+      if (rect === undefined || rect.height === 0) return
+      const box = scroll.getBoundingClientRect()
+      const top = scroll.scrollTop + rect.top - box.top - (box.height - rect.height) / 2
+      scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    } catch {
+      /* range 已失效 */
+    }
+  }
+
+  function updateCount(): void {
+    if (count === null) return
+    if (input === null || input.value.trim() === '') {
+      count.textContent = ''
+    } else if (matches.length === 0) {
+      count.textContent = '0'
+    } else {
+      count.textContent = `${current + 1} / ${matches.length}`
+    }
+    if (prevBtn !== null) prevBtn.disabled = matches.length === 0
+    if (nextBtn !== null) nextBtn.disabled = matches.length === 0
+  }
+
+  function markSnippet(snippet: string, needle: string): DocumentFragment {
+    const fragment = document.createDocumentFragment()
+    const at = snippet.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase())
+    if (at < 0) {
+      fragment.appendChild(document.createTextNode(snippet))
+      return fragment
+    }
+    fragment.appendChild(document.createTextNode(snippet.slice(0, at)))
+    const mark = document.createElement('mark')
+    mark.textContent = snippet.slice(at, at + needle.length)
+    fragment.appendChild(mark)
+    fragment.appendChild(document.createTextNode(snippet.slice(at + needle.length)))
+    return fragment
+  }
+
+  function renderResults(): void {
+    if (results === null || count === null) return
+    results.style.display = showResultList ? '' : 'none'
+    results.replaceChildren()
+    if (!showResultList) {
+      updateCount()
+      return
+    }
+    if (input === null || input.value.trim() === '') {
+      results.appendChild(el('div', 'dcs-empty', '输入关键词，搜索当前会话里已加载的消息。'))
+      updateCount()
+      return
+    }
+    if (matches.length === 0) {
+      results.appendChild(el('div', 'dcs-empty', '没有找到。试试更短的关键词，或向上滚动加载更早的对话。'))
+      updateCount()
+      return
+    }
+    const needle = input.value.trim()
+    const limit = Math.min(matches.length, resultLimit)
+    for (let i = 0; i < limit; i++) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'dcs-result'
+      button.setAttribute('aria-current', i === current ? 'true' : 'false')
+      button.title = '跳转到这个位置'
+      const snippet = el('span', 'dcs-snippet')
+      snippet.appendChild(markSnippet(matches[i].snippet, needle))
+      button.appendChild(snippet)
+      button.addEventListener('click', () => select(i, true))
+      results.appendChild(button)
+    }
+    if (matches.length > limit) {
+      results.appendChild(el('div', 'dcs-more', `仅显示前 ${limit} 条，共 ${matches.length} 条`))
+    }
+    updateCount()
+  }
+
+  function runSearch(): void {
+    clearHighlights()
+    matches = []
+    current = -1
+    if (panel === null || panel.style.display === 'none' || input === null) return
+    const query = input.value.trim()
+    if (query === '') {
+      renderResults()
+      applyHighlights()
+      return
+    }
+    const scroll = scroller()
+    const root = contentRoot()
+    if (scroll === null || root === null) {
+      renderResults()
+      return
+    }
+    const { text, slices } = collectText(scroll)
+    if (text === '' || slices.length === 0) {
+      renderResults()
+      return
+    }
+    const haystack = text.toLocaleLowerCase()
+    const needle = query.toLocaleLowerCase()
+    let from = 0
+    while (matches.length < 400) {
+      const at = haystack.indexOf(needle, from)
+      if (at < 0) break
+      const range = rangeAt(slices, at, at + needle.length)
+      if (range !== null && visible(range)) {
+        matches.push({ range, snippet: snippetOf(text, at, needle.length) })
+      }
+      from = at + Math.max(1, needle.length)
+    }
+    current = matches.length > 0 ? 0 : -1
+    renderResults()
+    applyHighlights()
+  }
+
+  function scheduleSearch(): void {
+    window.clearTimeout(debounce)
+    debounce = window.setTimeout(() => {
+      if (!composing) runSearch()
+    }, 120)
+  }
+
+  function select(index: number, reveal: boolean): void {
+    if (matches.length === 0) return
+    current = ((index % matches.length) + matches.length) % matches.length
+    if (results !== null) {
+      const items = results.querySelectorAll<HTMLElement>('.dcs-result')
+      items.forEach((item, i) => item.setAttribute('aria-current', i === current ? 'true' : 'false'))
+    }
+    applyHighlights()
+    updateCount()
+    if (reveal) jump(current)
+  }
+
+  function positionPanel(): void {
+    if (panel === null) return
+    const scroll = scroller()
+    if (scroll === null) return
+    const region = scroll.closest<HTMLElement>('[data-conversation-region="chat"]') ?? scroll
+    const rect = region.getBoundingClientRect()
+    const width = Math.min(300, Math.max(240, rect.width - 24))
+    const left = Math.max(8, Math.min(rect.right - width - 12, window.innerWidth - width - 8))
+    const top = Math.max(8, rect.top + 10)
+    panel.style.width = `${width}px`
+    panel.style.left = `${left}px`
+    panel.style.top = `${top}px`
+  }
+
+  function createPanel(): void {
+    if (panel !== null) return
+    panel = document.createElement('div')
+    panel.setAttribute(SEARCH_ATTR, '')
+    panel.setAttribute('data-dsh-plugin', 'dsh-companion')
+    panel.setAttribute('data-dsh-part', 'conversation-search')
+    panel.setAttribute('role', 'dialog')
+    panel.setAttribute('aria-label', '搜索当前会话')
+    panel.style.display = 'none'
+
+    const head = el('div', 'dcs-head')
+    const icon = el('span', 'dcs-icon')
+    icon.innerHTML =
+      '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.3"/><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>'
+    input = document.createElement('input')
+    input.type = 'search'
+    input.placeholder = '搜索当前会话'
+    input.setAttribute('aria-label', '搜索当前会话')
+    input.autocomplete = 'off'
+    input.spellcheck = false
+    count = el('span', 'dcs-count')
+    count.setAttribute('aria-live', 'polite')
+    prevBtn = document.createElement('button')
+    prevBtn.type = 'button'
+    prevBtn.className = 'dcs-btn'
+    prevBtn.textContent = '↑'
+    prevBtn.title = '上一个（Shift+Enter）'
+    prevBtn.setAttribute('aria-label', '上一个匹配')
+    nextBtn = document.createElement('button')
+    nextBtn.type = 'button'
+    nextBtn.className = 'dcs-btn'
+    nextBtn.textContent = '↓'
+    nextBtn.title = '下一个（Enter）'
+    nextBtn.setAttribute('aria-label', '下一个匹配')
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'dcs-btn'
+    closeBtn.textContent = '×'
+    closeBtn.title = '关闭（Esc）'
+    closeBtn.setAttribute('aria-label', '关闭搜索')
+    head.appendChild(icon)
+    head.appendChild(input)
+    head.appendChild(count)
+    head.appendChild(prevBtn)
+    head.appendChild(nextBtn)
+    head.appendChild(closeBtn)
+
+    results = el('div', 'dcs-results')
+    results.style.display = showResultList ? '' : 'none'
+    results.setAttribute('role', 'list')
+    results.setAttribute('aria-label', '搜索结果')
+    const foot = el('div', 'dcs-foot', 'Enter 下一个 · Shift+Enter 上一个 · Esc 关闭')
+    panel.appendChild(head)
+    panel.appendChild(results)
+    panel.appendChild(foot)
+    document.body.appendChild(panel)
+
+    input.addEventListener('input', () => {
+      scheduleSearch()
+    })
+    input.addEventListener('compositionstart', () => {
+      composing = true
+    })
+    input.addEventListener('compositionend', () => {
+      composing = false
+      scheduleSearch()
+    })
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault()
+        ev.stopPropagation()
+        close()
+        return
+      }
+      if (ev.key === 'Enter') {
+        ev.preventDefault()
+        ev.stopPropagation()
+        if (matches.length === 0) runSearch()
+        if (matches.length > 0) {
+          const base = current < 0 ? 0 : current + (ev.shiftKey ? -1 : 1)
+          select(base, true)
+        }
+        return
+      }
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault()
+        ev.stopPropagation()
+        if (matches.length > 0) {
+          const base = current + (ev.key === 'ArrowDown' ? 1 : -1)
+          select(base, true)
+        }
+      }
+    })
+    prevBtn.addEventListener('click', () => select(current - 1, true))
+    nextBtn.addEventListener('click', () => select(current + 1, true))
+    closeBtn.addEventListener('click', close)
+    updateCount()
+  }
+
+  function open(): boolean {
+    const scroll = scroller()
+    if (scroll === null) return false
+    createPanel()
+    if (panel === null || input === null) return false
+    const content = contentRoot()
+    openSession = content?.getAttribute('data-conversation-session') ?? ''
+    panel.style.display = 'block'
+    positionPanel()
+    input.focus({ preventScroll: true })
+    input.select()
+    if (input.value.trim() !== '') runSearch()
+    else renderResults()
+    return true
+  }
+
+  function close(): void {
+    if (panel === null) return
+    panel.style.display = 'none'
+    clearHighlights()
+    matches = []
+    current = -1
+    if (results !== null) results.replaceChildren()
+    updateCount()
+    input?.blur()
+  }
+
+  const onKeyDown = (ev: KeyboardEvent): void => {
+    if (ev.key === 'Escape' && panel !== null && panel.style.display !== 'none') {
+      ev.preventDefault()
+      ev.stopPropagation()
+      close()
+    }
+  }
+
+  const onResize = (): void => {
+    if (panel !== null && panel.style.display !== 'none') positionPanel()
+  }
+
+  // 切会话时不要留着上一会话的命中；范围也会失效。
+  let sessionObserver: MutationObserver | null = null
+  const watchSession = (): void => {
+    const content = contentRoot()
+    if (content === null || sessionObserver !== null) return
+    sessionObserver = new MutationObserver(() => {
+      if (panel === null || panel.style.display === 'none') return
+      const next = contentRoot()?.getAttribute('data-conversation-session') ?? ''
+      if (openSession !== '' && next !== openSession) close()
+    })
+    sessionObserver.observe(content, {
+      attributes: true,
+      attributeFilter: ['data-conversation-session'],
+    })
+  }
+
+  document.addEventListener('keydown', onKeyDown, true)
+  window.addEventListener('resize', onResize)
+  watchSession()
+  openConversationSearch = open
+
+  return () => {
+    document.removeEventListener('keydown', onKeyDown, true)
+    window.removeEventListener('resize', onResize)
+    window.removeEventListener('message', onSearchColorMessage)
+    sessionObserver?.disconnect()
+    sessionObserver = null
+    window.clearTimeout(debounce)
+    clearHighlights()
+    panel?.remove()
+    panel = null
+    input = null
+    count = null
+    results = null
+    prevBtn = null
+    nextBtn = null
+    colorStyle?.remove()
+    colorStyle = null
+    if (openConversationSearch === open) openConversationSearch = null
+    style.remove()
+  }
+}
+
+/** 对话标题栏 utilities 槽位放一个搜索图标；点击等价 Ctrl+F，不抢快捷键。 */
+function mountSearchHeaderButton(
+  ctx: ClientCtx,
+  modRequire?: (id: string) => any,
+): void {
+  const slots = ctx.slots
+  if (slots === undefined) return
+  let React: any = null
+  try {
+    React = modRequire !== undefined ? modRequire('react') : null
+  } catch {
+    React = null
+  }
+  if (React === null || typeof React.createElement !== 'function') return
+  const h = React.createElement
+
+  function SearchHeaderButton(): any {
+    return h(
+      'button',
+      {
+        type: 'button',
+        'data-dsh-companion-find-button': '',
+        'aria-label': '搜索当前会话',
+        'aria-keyshortcuts': 'Control+F Meta+F',
+        title: '搜索当前会话 (Ctrl+F)',
+        onClick: () => {
+          openConversationSearch?.()
+        },
+      },
+      h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          fill: 'none',
+          'aria-hidden': 'true',
+        },
+        h('circle', {
+          cx: 7,
+          cy: 7,
+          r: 4.6,
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+        }),
+        h('path', {
+          d: 'm10.5 10.5 3 3',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+          strokeLinecap: 'round',
+        }),
+      ),
+    )
+  }
+
+  try {
+    ctx.effect(() => {
+      const dispose = slots.inject('conversation.session.header.utilities', () =>
+        slots.register(
+          {
+            name: 'conversation.session.header.utilities',
+            id: 'companion.search-conversation',
+            // 排在 open-in-app(-10) / schedule(-5) / session-log(0) 之前，做右上角控件组最左边。
+            order: -100,
+          },
+          SearchHeaderButton,
+        ),
+      )
+      return typeof dispose === 'function' ? dispose : undefined
+    })
+  } catch {
+    /* 旧宿主没有这个槽位时只保留 Ctrl+F */
+  }
+}
+
+/** 没有 shortcuts 服务，或注册失败时的本地兜底（不会出现在设置列表里）。 */
+function installFallbackSearchShortcut(): ClientDisposer {
+  const onKey = (ev: KeyboardEvent): void => {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.key.toLowerCase() !== 'f') return
+    const el = document.querySelector<HTMLElement>('[data-conversation-scroll]')
+    if (el === null) return
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 1 || rect.height <= 1) return
+    ev.preventDefault()
+    ev.stopPropagation()
+    openConversationSearch?.()
+  }
+  document.addEventListener('keydown', onKey, true)
+  return () => document.removeEventListener('keydown', onKey, true)
+}
+
+/**
+ * 用宿主官方 shortcuts 服务注册 Ctrl+F。
+ * 这样 DSH 设置 → 通用 → 编辑快捷键（或 Mod+/）会列出「搜索当前会话」，
+ * 也能跟随宿主改绑，而不是插件自己硬编码。
+ */
+function mountConversationSearchShortcut(ctx: ClientCtx): void {
+  let shortcuts: { register(command: Record<string, unknown>): ClientDisposer | void } | undefined
+  try {
+    shortcuts =
+      typeof ctx.get === 'function'
+        ? (ctx.get('shortcuts') as { register(command: Record<string, unknown>): ClientDisposer | void } | undefined)
+        : undefined
+  } catch {
+    shortcuts = undefined
+  }
+  const installFallback = (): void => {
+    ctx.effect(() => installFallbackSearchShortcut())
+  }
+  if (shortcuts === undefined || typeof shortcuts.register !== 'function') {
+    installFallback()
+    return
+  }
+
+  try {
+    ctx.effect(() => {
+      const dispose = shortcuts.register({
+        id: 'companion.conversation.search',
+        label: () => '搜索当前会话',
+        aliases: ['搜索当前会话', '搜索对话', 'find in conversation', 'search conversation'],
+        defaults: {
+          'desktop:macos': { code: 'KeyF', modifiers: ['primary'] },
+          'desktop:windows': { code: 'KeyF', modifiers: ['primary'] },
+          'desktop:linux': { code: 'KeyF', modifiers: ['primary'] },
+          // Web 下 Ctrl+F 是浏览器查找，按 DSH 惯例用 Mod+Alt+F，避免被浏览器抢走。
+          'web:macos': { code: 'KeyF', modifiers: ['primary', 'alt'] },
+          'web:windows': { code: 'KeyF', modifiers: ['primary', 'alt'] },
+          'web:linux': { code: 'KeyF', modifiers: ['primary', 'alt'] },
+        },
+        regions: ['page', 'editable', 'terminal'],
+        modals: [],
+        resolve: () => {
+          if (openConversationSearch === null) {
+            return { status: 'blocked', reason: '搜索暂不可用' }
+          }
+          const el = document.querySelector<HTMLElement>('[data-conversation-scroll]')
+          if (el === null) {
+            return { status: 'blocked', reason: '当前没有打开的会话' }
+          }
+          const rect = el.getBoundingClientRect()
+          if (rect.width <= 1 || rect.height <= 1) {
+            return { status: 'blocked', reason: '当前没有打开的会话' }
+          }
+          return {
+            status: 'handled',
+            run: () => {
+              openConversationSearch?.()
+            },
+          }
+        },
+      })
+      return typeof dispose === 'function' ? dispose : undefined
+    })
+  } catch {
+    // 与已有 Ctrl+F 冲突或旧服务不支持时，至少保留本地快捷键。
+    installFallback()
+  }
+}
+
 /* ---------- 主装配 ---------- */
 
 function mountBadge(): ClientDisposer {
@@ -1560,6 +2436,12 @@ const entry = {
       mountSessionDeleteAction(ctx, modRequire)
       // 推理等级：不改模型选择器，只在官方「推理等级」行上接管点击。
       mountReasoningControl(ctx)
+      // Ctrl+F：当前对话内搜索；纯 DOM，不需要宿主槽位。
+      const disposeSearch = mountConversationSearch()
+      ctx.effect(() => disposeSearch)
+      mountSearchHeaderButton(ctx, modRequire)
+      // 官方快捷键注册：设置里的快捷键列表能看到「搜索当前会话」并改绑。
+      mountConversationSearchShortcut(ctx)
     }
     return { apply, inject }
   },

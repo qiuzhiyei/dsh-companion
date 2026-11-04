@@ -10,7 +10,7 @@
  *   tasks   —— 筛选工具条 + 实时任务行 + 任务表 + 分页 + 任务详情抽屉
  *   stats   —— 周期 + 消耗/产出指标组 + 诊断 + 图表 + 余额卡 + 排行 + 告警记录
  *   sessions—— 会话清单（多选 + 批量彻底删除）
- *   settings—— 伴侣 / 提醒 / 计费 / 数据 四组卡片（即时生效）
+ *   settings—— 伴侣 / 提醒 / 计费 / 数据 / 快捷键 五组卡片（即时生效）
  *
  * 页面以模板字符串内嵌；嵌入式 JS 只能字符串拼接（不能出现模板字面量插值）。
  */
@@ -524,6 +524,18 @@ export function panelPageHTML() {
   .setting-row .label{font-size:calc(14px * var(--ui-scale, 1));color:var(--ink-2);min-width:0}
   .setting-row .hint{display:block;font-size:calc(12.5px * var(--ui-scale, 1));color:var(--ink-3);margin-top:1px}
   .setting-row .control{display:flex;align-items:center;gap:8px;flex:none}
+  .shortcut-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:10px 14px;margin-bottom:10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  .shortcut-copy{display:grid;gap:2px;min-width:0}
+  .shortcut-copy b{font-size:calc(14px * var(--ui-scale, 1));font-weight:500;color:var(--ink)}
+  .shortcut-copy span{font-size:calc(12.5px * var(--ui-scale, 1));color:var(--ink-3)}
+  .shortcut-keys{display:flex;align-items:center;gap:7px;flex:none}
+  .keycap{font-family:var(--font-mono);font-size:calc(12px * var(--ui-scale, 1));line-height:1.2;
+    padding:4px 8px;border:1px solid var(--line-strong);border-radius:6px;background:var(--field-bg);
+    color:var(--ink-2);box-shadow:0 1px 0 rgba(255,255,255,.04) inset}
+  .shortcut-default{font-size:calc(11px * var(--ui-scale, 1));color:var(--ink-3)}
+  .color-pick{width:46px;height:30px;padding:2px;border:1px solid var(--line-strong);border-radius:6px;
+    background:var(--field-bg);cursor:pointer}
   .wide-split{display:grid;grid-template-columns:1fr;gap:24px;align-items:start}
   .price-meta{display:flex;justify-content:space-between;gap:10px;margin-top:10px;
     font-family:var(--font-mono);font-size:calc(12px * var(--ui-scale, 1));color:var(--ink-3)}
@@ -964,6 +976,7 @@ export function panelPageHTML() {
               <button type="button" data-group="remind">提醒</button>
               <button type="button" data-group="bill">计费</button>
               <button type="button" data-group="data">数据</button>
+              <button type="button" data-group="keys">快捷键</button>
             </nav>
             <div class="settings-content">
               <div class="settings-group on" data-pane="pet" id="set-pet">
@@ -1169,6 +1182,41 @@ export function panelPageHTML() {
                       </span>
                     </div>
                     <button class="act-btn" id="mockStart" type="button" style="margin-top:10px">▶ 跑一次模拟任务</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-group" data-pane="keys" id="set-keys" hidden>
+                <p class="settings-desc">本插件的搜索快捷键与显示设置。</p>
+                <div class="shortcut-bar" id="shortcut-bar">
+                  <span class="shortcut-copy"><b>搜索当前会话</b></span>
+                  <span class="shortcut-keys"><kbd class="keycap" id="shortcutSearchKey">Ctrl+F</kbd><span class="shortcut-default">默认</span></span>
+                </div>
+                <div class="settings-grid">
+                  <div class="setting-card" id="card-search-color">
+                    <div class="sc-head"><h4>搜索高亮颜色<button class="info" type="button" data-tip="只影响 DSH 伴侣对话搜索的命中标记：页面高亮和结果片段里的关键词会同步变色。颜色保存在当前 DSH 设备。">i</button></h4></div>
+                    <div class="setting-row">
+                      <span class="label">标记颜色<span class="hint">页面与结果片段同步</span></span>
+                      <span class="control"><input class="color-pick" type="color" id="setSearchColor" value="#f0b64a" aria-label="搜索高亮颜色"></span>
+                    </div>
+                  </div>
+                  <div class="setting-card" id="card-search-results">
+                    <div class="sc-head"><h4>搜索候选项<button class="info" type="button" data-tip="关闭后搜索框下方不再显示结果列表，只保留命中计数；Enter / Shift+Enter 仍可在命中之间跳转。打开时可选 1–10 个候选，默认 3 个。">i</button></h4></div>
+                    <div class="setting-row">
+                      <span class="label">显示候选项<span class="hint">关闭后只留搜索框与计数</span></span>
+                      <span class="control"><button class="switch" id="setResultsEnabled" role="switch" aria-checked="true" aria-label="显示候选项" type="button"></button></span>
+                    </div>
+                    <div class="setting-row">
+                      <span class="label">候选数量<span class="hint">1–10 · 默认 3</span></span>
+                      <span class="control">
+                        <select class="skin-select" id="setResultLimit" aria-label="候选数量">
+                          <option value="1">1</option><option value="2">2</option><option value="3" selected>3</option>
+                          <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                          <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+                          <option value="10">10</option>
+                        </select>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1450,7 +1498,7 @@ function updateHead() {
   } else if (currentTab === 'sessions') {
     $('head-sub').textContent = smSessions.length + ' 个会话 · 占用 ' + fmtSize(smLastTotal)
   } else {
-    $('head-sub').textContent = '4 组 · 面板与伴侣设置'
+    $('head-sub').textContent = '5 组 · 面板与伴侣设置'
   }
 }
 const PERIOD_LABEL = { today: '今日', week: '本周', month: '本月', all: '全部' }
@@ -2554,6 +2602,77 @@ for (const b of document.querySelectorAll('#settingsIndex button')) {
     })
   }
 }
+// 只改本插件快捷键的默认键位展示；实际改绑仍以 DSH 快捷键设置为准。
+;(() => {
+  const el = $('shortcutSearchKey')
+  if (!el) return
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || '')
+  const desktop = /Electron/i.test(navigator.userAgent || '')
+  el.textContent = mac
+    ? (desktop ? '⌘F' : '⌘⌥F')
+    : (desktop ? 'Ctrl+F' : 'Ctrl+Alt+F')
+})()
+// 搜索高亮颜色的唯一入口在本页；通过 postMessage 交给 DSH 主窗口的搜索浮层执行并持久化。
+;(() => {
+  const input = $('setSearchColor')
+  if (!input) return
+  const valid = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'dsh-companion:search-color:request' }, '*')
+  }
+  input.addEventListener('input', () => {
+    if (!valid(input.value)) return
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'dsh-companion:search-color', color: input.value }, '*')
+    }
+  })
+  window.addEventListener('message', (ev) => {
+    const data = ev.data
+    if (data && data.type === 'dsh-companion:search-color' && valid(data.color)) {
+      input.value = data.color
+    }
+  })
+})()
+// 搜索候选列表的开关与数量；同样由 DSH 主窗口的搜索浮层执行并持久化。
+;(() => {
+  const enabled = $('setResultsEnabled')
+  const limit = $('setResultLimit')
+  if (!enabled || !limit) return
+  const normalize = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? Math.min(10, Math.max(1, Math.round(n))) : 3
+  }
+  const send = () => {
+    if (window.parent === window) return
+    window.parent.postMessage({
+      type: 'dsh-companion:search-results',
+      show: enabled.getAttribute('aria-checked') === 'true',
+      limit: normalize(limit.value),
+    }, '*')
+  }
+  const apply = (show, rawLimit) => {
+    const on = show === true
+    setSwitch('setResultsEnabled', on)
+    limit.value = String(normalize(rawLimit))
+    limit.disabled = !on
+  }
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'dsh-companion:search-results:request' }, '*')
+  }
+  enabled.onclick = () => {
+    const on = enabled.getAttribute('aria-checked') !== 'true'
+    setSwitch('setResultsEnabled', on)
+    limit.disabled = !on
+    send()
+  }
+  limit.onchange = send
+  window.addEventListener('message', (ev) => {
+    const data = ev.data
+    if (data && data.type === 'dsh-companion:search-results' && typeof data.show === 'boolean') {
+      apply(data.show, data.limit)
+    }
+  })
+})()
 function renderBudgetUsage() {
   const box = $('budgetUsage')
   if (!box || !snap) return

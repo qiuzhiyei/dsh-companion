@@ -159,12 +159,22 @@ test('会话页：清单 + 多选 + 搜索排序 + 批量彻底删除', () => {
   assert.ok(html.includes('[hidden]{display:none !important}'), 'hidden 属性必须有全局隐藏规则')
 })
 
-test('设置页：四组 + 即时生效 + 官方价 + 数据保留', () => {
+test('设置页：五组 + 即时生效 + 官方价 + 数据保留 + 本插件快捷键', () => {
   const html = panelPageHTML()
-  for (const g of ['pet', 'remind', 'bill', 'data']) {
+  for (const g of ['pet', 'remind', 'bill', 'data', 'keys']) {
     assert.ok(html.includes('data-group="' + g + '"'), '缺分组按钮 ' + g)
     assert.ok(html.includes('data-pane="' + g + '"'), '缺分组面板 ' + g)
   }
+  assert.ok(html.includes('id="shortcut-bar"') && html.includes('id="shortcutSearchKey"'), '缺本插件快捷键条')
+  assert.ok(!html.includes('我的快捷键'), '快捷键页不应再出现「我的快捷键」标题')
+  assert.ok(!html.includes('只显示 DSH 伴侣的快捷键'), '快捷键页不应再保留长说明')
+  assert.ok(html.includes('id="card-search-color"') && html.includes('id="setSearchColor"'), '缺搜索高亮颜色设置')
+  assert.ok(html.includes('id="card-search-results"') && html.includes('id="setResultsEnabled"') && html.includes('id="setResultLimit"'), '缺搜索候选开关/数量设置')
+  assert.ok(html.includes('dsh-companion:search-color') && html.includes('dsh-companion:search-results'), '搜索设置应下发到搜索浮层')
+  assert.ok(html.includes('postMessage('), '搜索设置应通过 postMessage 下发')
+  assert.ok(html.includes('<option value="10">10</option>'), '候选数量上限应为 10')
+  assert.ok(html.includes('搜索当前会话'), '快捷键条缺搜索命令')
+  assert.ok(html.includes('Ctrl+F'), '快捷键条缺默认键位')
   // 长说明收进 ⓘ 的 data-tip
   assert.ok(html.includes('class="info"'), '卡头应有 ⓘ 按钮')
   assert.ok(html.includes('data-tip="'), 'ⓘ 应带 data-tip 说明')
