@@ -45,13 +45,30 @@ export function petPageHTML() {
   #petWrap { position: relative; display: flex; flex-direction: column; align-items: center; }
   #pet { width: 220px; height: 200px; filter: drop-shadow(0 14px 22px rgba(0,0,0,.42));
     position: relative; transform-origin: 50% 92%; cursor: pointer; }
+  /* 图片层包一层，只给这一层做很轻的 3D 跟手倾斜；宠物本体和气泡不跟着转。 */
+  #petTilt { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform;
+    transition: transform .18s ease-out; }
+  /* 地面软阴影：让裁切图有“站在桌面”的重量，不再像悬空贴纸。 */
+  #pet::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 58%; height: 15px;
+    transform: translateX(-50%); border-radius: 50%; pointer-events: none; z-index: 0;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,.42), rgba(0,0,0,0) 72%);
+    filter: blur(4px); animation: pet-shadow 3.2s ease-in-out infinite; }
   /* object-fit: contain——皮肤图不强制 11:10（AI 生成的方形 PNG 原样完整显示，不拉伸） */
-  #pet img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; transform-origin: 50% 92%; }
-  /* 待机呼吸 3.2s；任务中加快到 1.4s（设计稿状态映射）。放在 img 上，避免和
-     #pet 的交互 transform 动画互相覆盖。 */
+  #pet img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; transform-origin: 50% 92%;
+    position: relative; z-index: 1; }
+  /* 待机呼吸；带一点极轻的摆动，避免整张图完全静止。 */
   #pet img { animation: pet-breathe 3.2s ease-in-out infinite; }
   #pet.is-working img { animation-duration: 1.4s; }
-  @keyframes pet-breathe { 0%,100% { transform: translateY(0) scaleY(1) } 50% { transform: translateY(-2px) scaleY(1.012) } }
+  @keyframes pet-breathe { 0%,100% { transform: translateY(0) scaleY(1) rotate(0) } 50% { transform: translateY(-2px) scaleY(1.012) rotate(-.45deg) } }
+  @keyframes pet-shadow { 0%,100% { transform: translateX(-50%) scaleX(1); opacity: .9 } 50% { transform: translateX(-50%) scaleX(.94); opacity: .72 } }
+  /* 图片没加载 / 加载失败时不要露出 broken-image 方框：隐藏 img，显示同尺寸的鲸鱼占位。
+     注意这段不能挡住鼠标——命中判定会直接忽略未加载的图片。 */
+  #petFallback { display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 2; }
+  #petFallback svg { width: 136px; height: 114px; filter: drop-shadow(0 8px 14px rgba(0,0,0,.35)); opacity: .9; }
+  #pet.is-broken { filter: none; }
+  #pet.is-broken #petImg { visibility: hidden; }
+  #pet.is-broken #petFallback { display: flex; }
   /* Electron：整窗不设原生拖拽区（命中区域收窄到宠物本体：周边透明区域经
      智能穿透直接放行，见 setIgnoreMouseEvents + set-mouse-ignore IPC）。
      拖窗走页面指针捕获 + 主进程跟手；no-drag 声明保留兜底。 */
@@ -140,7 +157,8 @@ export function petPageHTML() {
   /* 减少动态效果：尊重系统设置，别让桌宠在「减少动画」模式下继续抖 */
   @media (prefers-reduced-motion: reduce) {
     #pet.anim-squish, #pet.anim-wobble, #pet.anim-look, #pet.anim-stretch, #pet.anim-doze, #pet.anim-walk,
-    #pet img { animation: none !important; }
+    #pet img, #pet::after { animation: none !important; }
+    #petTilt { transform: none !important; }
     .pet-particle { animation: none !important; }
     #placard.show { animation: none !important; }
   }
@@ -154,7 +172,18 @@ export function petPageHTML() {
         <div class="p-amount"><b class="p-amt" id="placardAmt">—</b><span class="p-cur" id="placardCur">CNY</span></div>
         <div class="p-sub"><span id="placardSub">DeepSeek 账号</span><span id="placardToday"></span></div>
       </div>
-      <div id="pet"><img id="petImg" alt="pet" draggable="false"></div>
+      <div id="pet">
+        <div id="petTilt">
+          <img id="petImg" alt="" draggable="false">
+          <div id="petFallback" aria-hidden="true">
+            <svg viewBox="0 0 120 100" fill="none">
+              <path d="M22 56c0-18 14-30 34-30 17 0 29 8 36 21 4-6 9-8 14-7-3 4-4 8-3 12 1 4 3 7 6 9-6 1-11-1-15-5-5 11-18 18-34 18-22 0-38-8-38-18Z" fill="rgba(70,229,195,.16)" stroke="#46e5c3" stroke-width="2"/>
+              <circle cx="47" cy="50" r="2.2" fill="#dffef8"/><circle cx="69" cy="50" r="2.2" fill="#dffef8"/>
+              <path d="M55 60c4 3 8 3 12 0" stroke="#dffef8" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+      </div>
       <div id="bubble" hidden>
         <span class="bubble-mark" id="bubbleMark" aria-hidden="true"></span>
         <div class="bubble-body">
@@ -218,8 +247,12 @@ function fmtHM(t) {
 // 还可能闪白。改成会话常量后同一帧在页面生命周期内 URL 恒定，可命中缓存/内存；
 // 改图 + Ctrl+R（重新加载页面 = 新常量）依旧能立刻看到新素材，开发工作流不变。
 const ASSET_V = String(Date.now())
+let petRetryCount = 0
+let petRetryTimer = null
+let petImageBroken = false
 function frameURL(skin, name, ext) {
-  return '/skins/' + encodeURIComponent(skin) + '/' + encodeURIComponent(name) + ext + '?v=' + ASSET_V
+  return '/skins/' + encodeURIComponent(skin) + '/' + encodeURIComponent(name) + ext +
+    '?v=' + ASSET_V + (petRetryCount ? '&r=' + petRetryCount : '')
 }
 
 function applySkin(skin, state) {
@@ -231,6 +264,37 @@ function applySkin(skin, state) {
   reactionName = null
   $('petImg').src = frameURL(skin, state, '.svg')
 }
+
+/** 图片真的解码出来才算可命中；src 为空 / 404 / 解码失败都不能算。 */
+function petImageReady() {
+  const img = $('petImg')
+  return !!(img && !petImageBroken && img.complete && img.naturalWidth > 0)
+}
+function markPetBroken(broken) {
+  if (petImageBroken === broken) return
+  petImageBroken = broken
+  const pet = $('pet')
+  if (pet) pet.classList.toggle('is-broken', broken)
+  const tilt = $('petTilt')
+  if (tilt) tilt.style.transform = ''
+  evalHover(lastMouse.x, lastMouse.y)
+}
+const petImageEl = $('petImg')
+petImageEl.addEventListener('load', () => {
+  petRetryCount = 0
+  markPetBroken(false)
+})
+petImageEl.addEventListener('error', () => {
+  markPetBroken(true)
+  if (petRetryCount >= 2) return
+  petRetryCount += 1
+  if (petRetryTimer) clearTimeout(petRetryTimer)
+  petRetryTimer = setTimeout(() => {
+    if (!snap) return
+    stateShown = null
+    applySkin(snap.settings.skin, snap.state)
+  }, 800 * petRetryCount)
+})
 
 // ---- 反应帧（manifest reactions 段）：抚摸/拖拽/连点时整图临时替换，
 //      让桌宠「点有反应、拖有脾气」。没有反应帧的皮肤自动退回纯 CSS 动画，
@@ -983,7 +1047,7 @@ function evalHover(x, y) {
   if (busyDrag) { setInteractive(true); return }
   const pet = $('pet')
   const el = document.elementFromPoint(x, y)
-  const onPet = !!(el && (el === pet || pet.contains(el)))
+  const onPet = petImageReady() && !!(el && (el === pet || pet.contains(el)))
   // 气泡里的按钮浮在宠物本体之外，不收回交互就点不到。
   const onRest = !!(el && el.closest && el.closest('#restActions'))
   const onBubble = !!(el && el.closest && el.closest('#bubbleActions'))
@@ -992,9 +1056,28 @@ function evalHover(x, y) {
 document.addEventListener('mousemove', (e) => {
   lastMouse.x = e.clientX; lastMouse.y = e.clientY
   // 鼠标在宠物身上打转也算「有人陪」——别在用户眼皮底下自己溜达。
-  if (e.target && e.target.closest && e.target.closest('#pet')) noteNudge()
+  if (petImageReady() && e.target && e.target.closest && e.target.closest('#pet')) noteNudge()
   evalHover(e.clientX, e.clientY)
 })
+
+// 很轻的 3D 跟手：只在宠物图片正常时生效；拖拽/减少动画模式直接跳过。
+const petRoot = $('pet')
+const petTiltEl = $('petTilt')
+function resetPetTilt() {
+  if (petTiltEl) petTiltEl.style.transform = ''
+}
+function updatePetTilt(e) {
+  if (!petTiltEl || !petImageReady() || busyDrag) return
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const r = petRoot.getBoundingClientRect()
+  if (!r.width || !r.height) return
+  const nx = Math.max(-1, Math.min(1, (e.clientX - r.left - r.width / 2) / (r.width / 2)))
+  const ny = Math.max(-1, Math.min(1, (e.clientY - r.top - r.height / 2) / (r.height / 2)))
+  petTiltEl.style.transform = 'perspective(560px) rotateX(' + (-ny * 1.6).toFixed(2) +
+    'deg) rotateY(' + (nx * 2.4).toFixed(2) + 'deg)'
+}
+petRoot.addEventListener('pointermove', updatePetTilt)
+petRoot.addEventListener('pointerleave', resetPetTilt)
 
 // 空闲随机小动作：14 秒一拍、45% 概率——张望 / 伸懒腰 / 打瞌睡（带 💤 和梦话）。
 setInterval(() => {

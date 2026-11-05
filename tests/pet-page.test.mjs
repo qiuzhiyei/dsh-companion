@@ -251,6 +251,9 @@ test('Electron 壳：拖拽跟手 IPC 面完整', async () => {
   assert.ok(page.includes("'任务完成'") && page.includes("'任务中断'") && page.includes("'任务失败'"), '通知标题应为干净的状态词')
   assert.ok(page.includes("'任务已结束'") && page.includes('privateMode()'), '隐私模式下通知不应泄露项目/金额')
   assert.ok(page.includes('dur < 60000'), '短任务不弹系统通知（避免刷屏）')
+  assert.ok(page.includes('id="petFallback"') && page.includes('is-broken'), '图片加载失败应有占位，不能露出 broken-image 方框')
+  assert.ok(page.includes('petImageReady') && page.includes('markPetBroken'), '未解码图片不能作为点击命中区域')
+  assert.ok(page.includes('pet-shadow') && page.includes('petTilt'), '桌宠应有地面阴影与轻量 3D 跟手')
   // 页面脚本必须整体可解析：通知正文里的 \n 曾在模板字符串里变成真实换行，
   // 导致整页 JS SyntaxError、宠物 img 完全不加载（2026-11-04 真实事故）。
   for (const match of page.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
