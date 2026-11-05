@@ -738,6 +738,7 @@ export function apply(ctx: Context, config: ConfigShape = Config({}) as ConfigSh
         adapter: adapter.kind,
         paused: currentSettings.paused,
         task: tracker.activeView(),
+        tasks: tracker.activeViews(),
         lastResult: tracker.lastFinishedView(),
         alert: lastAlert,
         settings: {

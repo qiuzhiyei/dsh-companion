@@ -69,6 +69,30 @@ export function petPageHTML() {
   #pet.is-broken { filter: none; }
   #pet.is-broken #petImg { visibility: hidden; }
   #pet.is-broken #petFallback { display: flex; }
+  /* 多任务并列条：只在同时运行 ≥2 个任务时出现，替代单个运行气泡。
+     位置和气泡一致，但用列表而不是覆盖式气泡；不接鼠标，避免挡穿透。 */
+  #taskStack { position: absolute; top: calc(100% + 12px); left: 50%; transform: translateX(-50%);
+    z-index: 4; width: max-content; max-width: min(320px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 3px;
+    padding: 8px 9px; border-radius: 8px; background: var(--bubble-bg); border: 1px solid var(--bubble-line);
+    box-shadow: 0 10px 26px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+    pointer-events: none; text-align: left; }
+  #taskStack[hidden] { display: none !important; }
+  .ts-row { display: flex; align-items: center; gap: 7px; min-width: 0; height: 24px;
+    padding: 0 2px; font-size: 11px; color: #dcecef; }
+  .ts-dot { width: 5px; height: 5px; border-radius: 50%; flex: none; background: var(--cyan);
+    box-shadow: 0 0 7px rgba(70,229,195,.7); }
+  .ts-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ts-name .ts-sub { color: #7f9aa2; font-size: 9px; margin-right: 4px; }
+  .ts-phase { flex: none; margin-left: auto; text-align: right; font-size: 10px; color: #a9c3c9; white-space: nowrap; }
+  .ts-meta { flex: none; text-align: right; font-family: var(--font-mono); font-size: 10px; color: #91aeb6;
+    white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ts-more { color: #7f9aa2; font-size: 10px; padding: 2px 2px 0; }
+  body.browser #stage #taskStack, body.embed #stage #taskStack {
+    position: relative; top: auto; left: auto; transform: none; margin-top: 10px; }
+  @media (max-height: 360px) {
+    #taskStack { padding: 6px 8px; gap: 2px; }
+    .ts-row { height: 20px; font-size: 10.5px; }
+  }
   /* Electron：整窗不设原生拖拽区（命中区域收窄到宠物本体：周边透明区域经
      智能穿透直接放行，见 setIgnoreMouseEvents + set-mouse-ignore IPC）。
      拖窗走页面指针捕获 + 主进程跟手；no-drag 声明保留兜底。 */
@@ -91,7 +115,7 @@ export function petPageHTML() {
   @keyframes pet-float { from { opacity: 1; transform: translateY(0) scale(.9) } to { opacity: 0; transform: translateY(-48px) scale(1.3) } }
   /* ---- 气泡：深底 + 荧光边 + 硬投影（不依赖壁纸） ---- */
   #bubble { position: absolute; top: calc(100% + 12px); left: 50%; transform: translateX(-50%); z-index: 4;
-    width: min(320px, calc(100vw - 20px)); display: flex; gap: 10px; align-items: flex-start;
+    width: max-content; max-width: min(320px, calc(100vw - 20px)); display: flex; gap: 10px; align-items: flex-start;
     padding: 12px 14px; border-radius: 7px; background: var(--bubble-bg);
     border: 1px solid var(--bubble-line); color: #eef8fa; font-size: 12px; line-height: 1.5;
     box-shadow: 0 10px 26px rgba(0,0,0,.55), 0 0 0 1px rgba(3,10,14,.9), inset 0 1px 0 rgba(255,255,255,.06);
@@ -116,7 +140,7 @@ export function petPageHTML() {
   #bubble.is-fail .bubble-mark { color: var(--red); }
   .bubble-mark svg { width: 16px; height: 16px; display: block; }
   .bubble-body { display: grid; gap: 3px; min-width: 0; justify-items: center; }
-  .bubble-body strong { font-size: 12.5px; font-weight: 600; color: #f2fbfd; letter-spacing: .01em; }
+  .bubble-body strong { font-size: 12.5px; font-weight: 600; color: #f2fbfd; letter-spacing: .01em; overflow-wrap: anywhere; }
   .bubble-body > span { font-size: 11px; color: #b7ccd3; font-family: var(--font-mono);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .bubble-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; justify-content: center;
@@ -184,6 +208,7 @@ export function petPageHTML() {
           </div>
         </div>
       </div>
+      <div id="taskStack" hidden></div>
       <div id="bubble" hidden>
         <span class="bubble-mark" id="bubbleMark" aria-hidden="true"></span>
         <div class="bubble-body">
@@ -402,10 +427,82 @@ function loadToday() {
 /** 隐私模式：气泡只留状态词，不出现任务名 / 金额 / 模型名（设计稿实现约束）。 */
 function privateMode() { return !!(snap && snap.settings && snap.settings.privacyMode) }
 
+/** 当前所有运行中任务；旧服务端没有 tasks 字段时回落单任务。 */
+function activeTasks() {
+  if (!snap) return []
+  if (Array.isArray(snap.tasks) && snap.tasks.length) return snap.tasks
+  return snap.task ? [snap.task] : []
+}
+
+function hideTaskStack() {
+  const el = $('taskStack')
+  if (!el) return
+  el.hidden = true
+  el.replaceChildren()
+}
+
+/**
+ * 只要还有任务在跑，就用统一的任务行显示；1 个也是同样格式，不退回全局状态气泡。
+ * 只占 3 行：超过 3 个时显示前两个 + “还有 N 个”，避免 HUD 顶出窗口。
+ */
+function taskPhaseLabel(phase) {
+  if (phase === 'streaming') return '输出中'
+  if (phase === 'tool') return '执行工具'
+  return '等待模型'
+}
+
+function renderTaskStack() {
+  const el = $('taskStack')
+  const all = activeTasks()
+  if (!el || all.length === 0 || (snap.settings && snap.settings.purePetMode) || boardOpen) {
+    hideTaskStack()
+    return false
+  }
+  const maxRows = 3
+  const more = all.length > maxRows
+  const shown = more ? all.slice(0, maxRows - 1) : all
+  el.replaceChildren()
+
+  for (let i = 0; i < shown.length; i++) {
+    const t = shown[i]
+    const row = document.createElement('div')
+    row.className = 'ts-row'
+    row.title = privateMode() ? '' : [t.project, t.model].filter(Boolean).join(' · ')
+    const dot = document.createElement('span')
+    dot.className = 'ts-dot'
+    const name = document.createElement('span')
+    name.className = 'ts-name'
+    if (!privateMode() && t.subagent) {
+      const sub = document.createElement('span')
+      sub.className = 'ts-sub'
+      sub.textContent = '子任务'
+      name.append(sub)
+    }
+    name.append(document.createTextNode(privateMode() ? ('任务 ' + (i + 1)) : (t.project || t.model || '未命名任务')))
+    const phase = document.createElement('span')
+    phase.className = 'ts-phase'
+    phase.textContent = taskPhaseLabel(t.phase)
+    const meta = document.createElement('span')
+    meta.className = 'ts-meta'
+    meta.textContent = fmtClock(Date.now() - t.startTime)
+    row.append(dot, name, phase, meta)
+    el.append(row)
+  }
+  if (more) {
+    const rest = document.createElement('div')
+    rest.className = 'ts-more'
+    rest.textContent = '还有 ' + (all.length - shown.length) + ' 个任务'
+    el.append(rest)
+  }
+  el.hidden = false
+  return true
+}
+
 function renderHud() {
   if (!snap) return
   const pet = $('pet')
-  pet.classList.toggle('is-working', !!snap.task)
+  pet.classList.toggle('is-working', activeTasks().length > 0)
+  hideTaskStack()
   if (snap.settings && snap.settings.purePetMode) { setBubble(null); return }
   // 举牌期间收起气泡，把舞台整体下移给牌子让位（见 .board-open）。
   if (boardOpen) { setBubble(null); return }
@@ -427,6 +524,8 @@ function renderHud() {
     setBubble('alert', 'alert', title, meta, 'dismiss')
     return
   }
+  // 运行中任务：1 个或多个都用同一行格式显示阶段/时长。
+  if (renderTaskStack()) { setBubble(null); return }
   if (snap.task) {
     // 任务启动：显示任务名 2 秒（设计稿 START）。
     if (startTask && Date.now() < startUntil) {
@@ -506,8 +605,8 @@ function tick() {
     flashResult = null
     renderHud()
   }
-  // 运行态气泡的计时/Token 每秒走一格；不依赖 SSE 恰好有 token 事件。
-  if (snap.task) renderHud()
+  // 运行态气泡/多任务列表的计时每秒走一格；不依赖 SSE 恰好有 token 事件。
+  if (activeTasks().length) renderHud()
 }
 
 function render() {
@@ -971,7 +1070,7 @@ function petReact() {
   playAnim('anim-squish')
   showReaction('pat', 1500) // 舒服~（1.5 秒后回到状态帧）
   spawnParticles(['❤', '💛', '✨'], 3 + Math.floor(Math.random() * 2))
-  sayLine(pick(skinLines(snap && snap.task ? 'work' : 'idle')))
+  sayLine(pick(skinLines(activeTasks().length ? 'work' : 'idle')))
 }
 function landingReact() {
   playAnim('anim-wobble')
@@ -1081,7 +1180,7 @@ petRoot.addEventListener('pointerleave', resetPetTilt)
 
 // 空闲随机小动作：14 秒一拍、45% 概率——张望 / 伸懒腰 / 打瞌睡（带 💤 和梦话）。
 setInterval(() => {
-  if (!snap || snap.task || petHidden()) return
+  if (!snap || activeTasks().length || petHidden()) return
   if (Date.now() < flashUntil || Date.now() < lineUntil || Date.now() < dizzyUntil) return
   if (busyDrag) return
   if (Math.random() > 0.45) return
@@ -1241,7 +1340,7 @@ async function roamStart() {
 }
 setInterval(() => {
   if (busyRoam || !roamEnabled() || petHidden()) return
-  if (!snap || snap.task) return
+  if (!snap || activeTasks().length) return
   if (busyDrag) return
   if (restPromptUntil > 0) return
   if (snap.settings && snap.settings.showPet === false) return

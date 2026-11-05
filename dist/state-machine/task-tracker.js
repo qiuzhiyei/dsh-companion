@@ -42,6 +42,12 @@ export class TaskTracker {
             return null;
         return toActiveView(primary);
     }
+    /** 所有运行中任务（主会话优先、再按开始时间），供桌宠并列显示。 */
+    activeViews() {
+        return [...this.running.values()]
+            .sort((a, b) => Number(a.subagent) - Number(b.subagent) || a.session.startTime - b.session.startTime)
+            .map(toActiveView);
+    }
     lastFinishedView() {
         return this.lastResult;
     }
@@ -58,6 +64,18 @@ export class TaskTracker {
             case 'task-end':
                 void this.endTask(event.task, event.status, event.time);
                 break;
+            case 'model-start': {
+                const task = this.running.get(taskKey(event.task));
+                if (task)
+                    task.phase = 'waiting';
+                break;
+            }
+            case 'stream-activity': {
+                const task = this.running.get(taskKey(event.task));
+                if (task)
+                    task.phase = 'streaming';
+                break;
+            }
             case 'model-route': {
                 const task = this.running.get(taskKey(event.task));
                 if (task) {
@@ -85,12 +103,15 @@ export class TaskTracker {
                 task.session.cost = isPricedProvider(task.session.provider)
                     ? computeCost(task.session.promptTokens, task.session.completionTokens, task.session.cachedTokens, task.session.model, this.modelPrices, task.session.startTime)
                     : 0;
+                if (!hasActiveTool(task))
+                    task.phase = 'waiting';
                 break;
             }
             case 'tool-start': {
                 const task = this.running.get(taskKey(event.task));
                 if (!task)
                     break;
+                task.phase = 'tool';
                 // 同一 callId 重复 start 不重复计数。
                 if (!task.toolIds.has(event.callId)) {
                     task.toolIds.add(event.callId);
@@ -110,6 +131,7 @@ export class TaskTracker {
                     task.session.toolSuccess += 1;
                 else
                     task.session.toolFail += 1;
+                task.phase = hasActiveTool(task) ? 'tool' : 'waiting';
                 break;
             }
             default:
@@ -130,6 +152,7 @@ export class TaskTracker {
         const id = `${task.sessionId}:${task.turn}`;
         this.running.set(key, {
             subagent: task.subagent,
+            phase: 'waiting',
             toolIds: new Set(),
             endedToolIds: new Set(),
             session: {
@@ -186,6 +209,13 @@ export class TaskTracker {
         }
     }
 }
+function hasActiveTool(entry) {
+    for (const id of entry.toolIds) {
+        if (!entry.endedToolIds.has(id))
+            return true;
+    }
+    return false;
+}
 function toActiveView(entry) {
     const s = entry.session;
     return {
@@ -197,6 +227,7 @@ function toActiveView(entry) {
         provider: s.provider,
         model: s.model,
         startTime: s.startTime,
+        phase: entry.phase,
         tokens: {
             inputTokens: s.promptTokens,
             outputTokens: s.completionTokens,

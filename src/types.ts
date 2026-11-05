@@ -265,6 +265,9 @@ export const DEFAULT_SETTINGS: PetSettings = {
 // 快照（SSE / API 输出）
 // ---------------------------------------------------------------------------
 
+/** 运行中任务的阶段（每个任务独立，不混用全局状态机）。 */
+export type ActiveTaskPhase = 'waiting' | 'streaming' | 'tool'
+
 /** 正在进行的任务（实时视图）。 */
 export interface ActiveTaskView {
   id: string
@@ -275,6 +278,7 @@ export interface ActiveTaskView {
   provider: string
   model: string
   startTime: number
+  phase: ActiveTaskPhase
   tokens: UsageSnapshot
   cost: number
   toolCalls: number
@@ -325,6 +329,8 @@ export interface PetSnapshot {
   adapter: 'dsh' | 'mock'
   paused: boolean
   task: ActiveTaskView | null
+  /** 所有运行中任务（含 subagent）；task 仍是主任务，兼容旧消费方。 */
+  tasks: ActiveTaskView[]
   lastResult: FinishedTaskView | null
   alert: BudgetAlert | null
   settings: PetSettings

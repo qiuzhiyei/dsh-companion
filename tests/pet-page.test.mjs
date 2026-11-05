@@ -125,7 +125,7 @@ test('桌宠页：可见性门控（隐藏不空转，SSE 与通知不受影响�
   // 四处轮询/调度都必须门控（tick、loadToday、空闲小动作、漫游调度）。
   assert.ok(html.includes('if (!snap || petHidden()) return'), 'tick 应门控')
   assert.ok(html.includes('if (!petHidden()) loadToday()'), '今日统计轮询应门控')
-  assert.ok(html.includes('snap.task || petHidden()'), '空闲小动作应门控')
+  assert.ok(html.includes('activeTasks().length || petHidden()'), '空闲小动作应门控')
   assert.ok(html.includes('!roamEnabled() || petHidden()'), '漫游调度应门控')
   // 恢复可见必须重置久坐计时：隐藏期间停摆，restBaseTs 陈旧会立刻误报「坐了很久」。
   const at = html.indexOf("addEventListener('visibilitychange'")
@@ -355,10 +355,18 @@ test('悬浮页：深海终端 HUD（气泡变体 / 状态映射 / 余额举牌�
   assert.ok(html.includes('snap.label ||'), '运行气泡标题用宿主状态文案')
   assert.ok(html.includes('fmtClock(Date.now() - task.startTime)'), '运行气泡显示实时计时')
   assert.ok(html.includes('fmtTokens(task.tokens.totalTokens)'), '运行气泡显示实时 Token')
-  assert.ok(html.includes('if (snap.task) renderHud()'), 'tick 每秒刷新运行状态')
+  assert.ok(html.includes('if (activeTasks().length) renderHud()'), 'tick 每秒刷新运行状态')
+  assert.ok(html.includes('function activeTasks') && html.includes('renderTaskStack'), '并行任务应使用任务列表而不是固定单任务')
+  assert.ok(html.includes('all.length === 0') && html.includes('1 个或多个'), '只剩一个任务时也应保留阶段行')
+  assert.ok(html.includes('还有 ') && html.includes('ts-row'), '多任务列表应有截断/更多提示')
+  // 任务条宽度跟文字走：固定 320 时短任务名和状态之间会空出一大截（用户反馈）。
+  assert.ok(/#taskStack \{[^}]*width: max-content/.test(html), '任务条宽度应按内容自适应')
+  assert.ok(/#taskStack \{[^}]*max-width: min\(320px/.test(html), '任务条仍要有 320 上限，长名字用省略号')
+  assert.ok(html.includes('taskPhaseLabel') && html.includes("'等待模型'") && html.includes("'执行工具'"), '并行任务应显示各自阶段')
   assert.ok(html.includes('flashUntil = Date.now() + 5000'), '完成气泡停留 5 秒')
   assert.ok(html.includes('flashPersist = true'), '失败气泡应常驻到点掉（不自动消失）')
   assert.ok(html.includes('setBubble(null)'), '待机/纯宠物模式要收起气泡')
+  assert.ok(html.includes('width: max-content') && html.includes('max-width: min(320px'), '气泡宽度应随内容自适应而不是固定 320')
   assert.ok(html.includes("ok ? 'ok' :"), '完成用 ok 变体')
   // 隐私模式只留状态词
   assert.ok(html.includes('function privateMode'), '缺隐私模式判定')
