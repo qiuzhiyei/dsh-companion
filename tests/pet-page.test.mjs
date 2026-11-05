@@ -363,6 +363,7 @@ test('悬浮页：深海终端 HUD（气泡变体 / 状态映射 / 余额举牌�
   assert.ok(/#taskStack \{[^}]*width: max-content/.test(html), '任务条宽度应按内容自适应')
   assert.ok(/#taskStack \{[^}]*max-width: min\(320px/.test(html), '任务条仍要有 320 上限，长名字用省略号')
   assert.ok(html.includes('taskPhaseLabel') && html.includes("'等待模型'") && html.includes("'执行工具'"), '并行任务应显示各自阶段')
+  assert.ok(html.includes('data-phase="waiting"') && html.includes('data-phase="tool"') && html.includes('rgba(122,162,255'), '阶段应有独立颜色（等待/输出/工具）')
   assert.ok(html.includes('flashUntil = Date.now() + 5000'), '完成气泡停留 5 秒')
   assert.ok(html.includes('flashPersist = true'), '失败气泡应常驻到点掉（不自动消失）')
   assert.ok(html.includes('setBubble(null)'), '待机/纯宠物模式要收起气泡')

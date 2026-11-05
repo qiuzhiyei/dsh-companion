@@ -48,7 +48,16 @@ export function petPageHTML(): string {
     position: relative; transform-origin: 50% 92%; cursor: pointer; }
   /* 图片层包一层，只给这一层做很轻的 3D 跟手倾斜；宠物本体和气泡不跟着转。 */
   #petTilt { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform;
-    transition: transform .18s ease-out; }
+    transition: transform .18s ease-out; z-index: 1; }
+  /* 阶段光：等待模型/输出/工具用不同色，只做柔光，不给角色本身染色。 */
+  #pet::before { content: ""; position: absolute; left: 50%; top: 52%; width: 86%; height: 72%;
+    transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; z-index: 0;
+    background: radial-gradient(ellipse at center, var(--task-tone, transparent) 0%, transparent 70%);
+    filter: blur(8px); opacity: 0; transition: opacity .25s ease, background .25s ease; }
+  #pet.is-working::before { opacity: .8; }
+  #pet[data-phase="waiting"] { --task-tone: rgba(240,182,74,.34); }
+  #pet[data-phase="streaming"] { --task-tone: rgba(70,229,195,.34); }
+  #pet[data-phase="tool"] { --task-tone: rgba(122,162,255,.36); }
   /* 地面软阴影：让裁切图有“站在桌面”的重量，不再像悬空贴纸。 */
   #pet::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 58%; height: 15px;
     transform: translateX(-50%); border-radius: 50%; pointer-events: none; z-index: 0;
@@ -82,6 +91,12 @@ export function petPageHTML(): string {
     padding: 0 2px; font-size: 11px; color: #dcecef; }
   .ts-dot { width: 5px; height: 5px; border-radius: 50%; flex: none; background: var(--cyan);
     box-shadow: 0 0 7px rgba(70,229,195,.7); }
+  .ts-row[data-phase="waiting"] .ts-dot { background: #f0b64a; box-shadow: 0 0 7px rgba(240,182,74,.7); }
+  .ts-row[data-phase="waiting"] .ts-phase { color: #f0b64a; }
+  .ts-row[data-phase="streaming"] .ts-dot { background: #46e5c3; box-shadow: 0 0 7px rgba(70,229,195,.7); }
+  .ts-row[data-phase="streaming"] .ts-phase { color: #46e5c3; }
+  .ts-row[data-phase="tool"] .ts-dot { background: #7aa2ff; box-shadow: 0 0 7px rgba(122,162,255,.75); }
+  .ts-row[data-phase="tool"] .ts-phase { color: #7aa2ff; }
   .ts-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ts-name .ts-sub { color: #7f9aa2; font-size: 9px; margin-right: 4px; }
   .ts-phase { flex: none; margin-left: auto; text-align: right; font-size: 10px; color: #a9c3c9; white-space: nowrap; }
@@ -455,10 +470,20 @@ function taskPhaseLabel(phase) {
 function renderTaskStack() {
   const el = $('taskStack')
   const all = activeTasks()
-  if (!el || all.length === 0 || (snap.settings && snap.settings.purePetMode) || boardOpen) {
+  if (!el || all.length === 0) {
+    const pet = $('pet')
+    if (pet) pet.removeAttribute('data-phase')
     hideTaskStack()
     return false
   }
+  if ((snap.settings && snap.settings.purePetMode) || boardOpen) {
+    hideTaskStack()
+    return false
+  }
+  // 桌宠柔光用所有任务里最“活跃”的阶段：工具 > 输出 > 等待。
+  const dominant = all.find((t) => t.phase === 'tool') || all.find((t) => t.phase === 'streaming') || all[0]
+  const pet = $('pet')
+  if (pet) pet.dataset.phase = dominant.phase || 'waiting'
   const maxRows = 3
   const more = all.length > maxRows
   const shown = more ? all.slice(0, maxRows - 1) : all
@@ -468,6 +493,7 @@ function renderTaskStack() {
     const t = shown[i]
     const row = document.createElement('div')
     row.className = 'ts-row'
+    row.dataset.phase = t.phase || 'waiting'
     row.title = privateMode() ? '' : [t.project, t.model].filter(Boolean).join(' · ')
     const dot = document.createElement('span')
     dot.className = 'ts-dot'
