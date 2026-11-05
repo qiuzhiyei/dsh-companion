@@ -509,8 +509,38 @@ ipcMain.on('pet-shell:set-mouse-ignore', (_event, ignore) => {
 
 // 系统通知：长任务完成/失败、预算触顶时用。页面侧已做「短任务不打扰」节流，
 // 这里只负责投递；Windows 需要 AppUserModelID 才会显示成应用通知（toast）。
-const APP_ID = 'com.dsh.companion'
+const APP_ID = 'com.qiuzhiyei.dsh-companion'
 try { app.setAppUserModelId(APP_ID) } catch (err) { /* 非 Windows 忽略 */ }
+
+/**
+ * Windows Toast 的标题栏取开始菜单快捷方式名，而不是 Electron 应用名。
+ * 没有快捷方式时系统会显示 “Electron”；这里静默创建/更新一个
+ * “DSH 伴侣”快捷方式，让通知标题栏也显示正确名字。
+ */
+function ensureNotificationShortcut() {
+  if (process.platform !== 'win32') return
+  try {
+    const programs = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+    const link = path.join(programs, 'DSH 伴侣.lnk')
+    const target = process.execPath
+    const args = app.isPackaged ? '' : `"${__filename}"`
+    let stale = true
+    try {
+      const current = shell.readShortcutLink(link)
+      stale = current.target !== target || current.args !== args || current.appUserModelId !== APP_ID
+    } catch { /* 快捷方式不存在 */ }
+    if (stale) {
+      shell.writeShortcutLink(link, 'create', {
+        target,
+        args,
+        description: 'DSH 伴侣',
+        appUserModelId: APP_ID,
+      })
+    }
+  } catch { /* 没有开始菜单权限时不影响通知 */ }
+}
+
+const NOTIFY_ICON = path.join(HERE, '..', 'assets', 'skins', 'whale', 'idle.png')
 let lastNotifyAt = 0
 ipcMain.on('pet-shell:notify', (_event, title, body) => {
   if (!Notification.isSupported()) return
@@ -521,6 +551,7 @@ ipcMain.on('pet-shell:notify', (_event, title, body) => {
     const n = new Notification({
       title: String(title || 'DSH 伴侣').slice(0, 80),
       body: String(body || '').slice(0, 200),
+      ...(fs.existsSync(NOTIFY_ICON) ? { icon: nativeImage.createFromPath(NOTIFY_ICON) } : {}),
       silent: false,
     })
     n.on('click', () => {
@@ -533,6 +564,7 @@ ipcMain.on('pet-shell:notify', (_event, title, body) => {
 })
 
 app.whenReady().then(() => {
+  ensureNotificationShortcut()
   createWindow()
   createTray()
   app.on('window-all-closed', (event) => {

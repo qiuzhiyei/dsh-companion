@@ -1,7 +1,7 @@
 {
   "name": "@qiuzhiyei/dsh-companion",
-  "version": "2.1.0",
-  "description": "DSH 伴侣 2.1 — DeepSeek Harness 伴侣插件：桌宠 HUD、用量/费用统计、历史对话搜索、推理等级、预算/余额告警与会话管理。",
+  "version": "2.1.1",
+  "description": "DSH 伴侣 2.1.1 — DeepSeek Harness 伴侣插件：桌宠 HUD、用量/费用统计、历史对话搜索、推理等级、预算/余额告警与会话管理。",
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",

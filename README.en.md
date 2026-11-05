@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/icon.svg" width="84" alt="DSH Companion" />
 
-# DSH Companion 2.1
+# DSH Companion 2.1.1
 
 A companion plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
@@ -19,6 +19,11 @@ Desktop pet · live status · usage stats · history search · budget/balance ·
 <p align="center">
   <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/docs/images/pet.png" width="270" alt="DSH Companion — whale girl" />
 </p>
+
+## 2.1.1 fixes
+
+- **Fixed the desktop pet image not showing**: the notification body's newline was expanded into a literal newline by the page template, causing a syntax error in the entire pet script so the `<img>` never received a source. It is now escaped correctly, with a regression test that parses every inline pet-page script.
+- **System notification polish**: the Windows toast header no longer says "Electron" and shows "DSH Companion"; titles are clean status words (task completed / interrupted / failed / max tokens), the body shows project + duration · tokens · cost, and privacy mode hides project, amounts and tokens.
 
 ## What's new in 2.1
 

@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/icon.svg" width="84" alt="DSH 伴侣" />
 
-# DSH 伴侣 2.1
+# DSH 伴侣 2.1.1
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的伴侣插件
 
@@ -20,7 +20,12 @@
   <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/docs/images/pet.png" width="270" alt="DSH 伴侣 · 鲸鱼娘" />
 </p>
 
-## 本次更新 · 2.1
+## 2.1.1 修复
+
+- **修复桌宠图片不显示**：通知正文的换行曾被模板字符串展开成真实换行，导致桌宠页整段 JS 语法错误、`<img>` 没有拿到地址。已改为正确转义，并新增「桌宠页内联脚本必须能通过 JS 语法解析」的回归测试。
+- **系统通知优化**：Windows 通知标题栏不再显示 “Electron”，改为「DSH 伴侣」；标题只保留干净状态词（任务完成 / 任务中断 / 任务失败 / 任务触顶），正文显示项目名 + 时长 · Token · 费用；隐私模式下不泄露项目、金额和 Token。
+
+## 2.1 新功能
 
 - **历史对话搜索**：左侧栏新增「历史搜索」入口（在「插件」上方），按「全部 / 消息 / 对话」搜索所有历史会话。
 - **不设结果上限**：消息按批扫描全部有工作区的会话，结果渐进显示；不是只搜最近几条。

@@ -242,11 +242,20 @@ test('Electron 壳：拖拽跟手 IPC 面完整', async () => {
   assert.ok(main.includes("ipcMain.on('pet-shell:notify'"), 'main 处理 notify')
   assert.ok(main.includes('new Notification('), 'main 应投递系统通知')
   assert.ok(main.includes('setAppUserModelId'), 'Windows 需 AppUserModelId 才显示 toast')
+  assert.ok(main.includes('writeShortcutLink') && main.includes('appUserModelId'), 'Windows toast 应用名应通过开始菜单快捷方式注册')
+  assert.ok(main.includes('com.qiuzhiyei.dsh-companion'), '通知应用标识应稳定')
   const page = petPageHTML()
   assert.ok(page.includes('function canNotify'), '缺通知开关判定')
   assert.ok(page.includes('snap.settings.notify !== false'), '通知应受 settings.notify 门控')
   assert.ok(page.includes('notifyFinished') && page.includes('notifyAlert'), '完成/预算两类通知')
+  assert.ok(page.includes("'任务完成'") && page.includes("'任务中断'") && page.includes("'任务失败'"), '通知标题应为干净的状态词')
+  assert.ok(page.includes("'任务已结束'") && page.includes('privateMode()'), '隐私模式下通知不应泄露项目/金额')
   assert.ok(page.includes('dur < 60000'), '短任务不弹系统通知（避免刷屏）')
+  // 页面脚本必须整体可解析：通知正文里的 \n 曾在模板字符串里变成真实换行，
+  // 导致整页 JS SyntaxError、宠物 img 完全不加载（2026-11-04 真实事故）。
+  for (const match of page.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+    assert.doesNotThrow(() => new Function(match[1]), '桌宠页内联脚本必须能通过 JS 语法解析')
+  }
   assert.ok(page.includes('msg.alert.time !== prevAlertTime'), '预算告警只在新增时通知')
   // 余额低告警：通知标题区分 + 举牌警示态（低于阈值金额转红、副标题提示充值）
   assert.ok(page.includes('余额不足'), '告警通知标题应区分余额不足与预算告警')

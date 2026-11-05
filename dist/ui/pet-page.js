@@ -480,17 +480,32 @@ function notifyFinished(r) {
   if (!canNotify() || !r) return
   const dur = Number(r.durationMs) || 0
   if (dur < 60000) return
-  const ok = r.status === 'success'
-  const word = ok ? '完成' : (r.status === 'interrupted' ? '中断' : '失败')
-  const bits = [fmtDuration(dur)]
+  const label = r.status === 'success'
+    ? '任务完成'
+    : r.status === 'interrupted'
+      ? '任务中断'
+      : r.status === 'blocked'
+        ? '任务等待输入'
+        : r.status === 'max-tokens'
+          ? '任务触顶'
+          : '任务失败'
+  if (privateMode()) {
+    window.petShell.notify(label, '任务已结束')
+    return
+  }
+  const detail = [fmtDuration(dur)]
   const tot = r.tokens && r.tokens.totalTokens
-  if (tot) bits.push(fmtTokens(tot) + ' tok')
-  if (r.cost > 0) bits.push(currencySymbol(snap.currency) + r.cost.toFixed(2))
-  window.petShell.notify((ok ? '✓ ' : '✗ ') + '任务' + word, bits.join(' · '))
+  if (tot) detail.push(fmtTokens(tot) + ' tok')
+  if (r.cost > 0) detail.push(currencySymbol(snap.currency) + r.cost.toFixed(2))
+  window.petShell.notify(label, (r.project ? r.project + '\\n' : '') + detail.join(' · '))
 }
 function notifyAlert(a) {
   if (!canNotify() || !a) return
-  window.petShell.notify(a.kind === 'balance-low' ? '⚠ 余额不足' : '⚠ 预算告警', a.message || '')
+  if (privateMode()) {
+    window.petShell.notify(a.kind === 'balance-low' ? '余额不足' : '预算告警', '请打开 DSH 伴侣面板查看')
+    return
+  }
+  window.petShell.notify(a.kind === 'balance-low' ? '余额不足' : '预算告警', a.message || '')
 }
 
 const es = new EventSource('/api/events')
