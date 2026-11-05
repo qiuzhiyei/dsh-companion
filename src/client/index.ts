@@ -231,14 +231,27 @@ function ensureStyle(): ClientDisposer {
     '  color: #46e5c3; background: rgba(70,229,195,.08); border-color: rgba(70,229,195,.20);',
     '}',
     `[${BADGE_ATTR}] .sb-dot {`,
-    '  width: 7px; height: 7px; border-radius: 50%; flex: none; justify-self: end;',
+    '  width: 10px; height: 10px; border-radius: 50%; flex: none; justify-self: end; position: relative;',
+    '  margin-right: 2px; background: currentColor;',
     '  animation: dsh-companion-breath 2s ease-in-out infinite;',
+    '}',
+    `[${BADGE_ATTR}] .sb-dot::after {`,
+    '  content: ""; position: absolute; inset: -4px; border-radius: 50%;',
+    '  border: 1px solid currentColor; opacity: 0; pointer-events: none;',
+    '  animation: dsh-companion-halo 2s ease-out infinite;',
     '}',
     `[${BADGE_ATTR}] .sb-arrow {`,
     '  justify-self: end; color: var(--dsw-alias-text-secondary, #7d959e); font-size: 12px; line-height: 1;',
     '}',
     `@keyframes dsh-companion-breath {`,
-    '  0%, 100% { opacity: 1; } 50% { opacity: .35; }',
+    '  0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .62; transform: scale(.9); }',
+    '}',
+    `@keyframes dsh-companion-halo {`,
+    '  0% { opacity: .55; transform: scale(.5); } 70%, 100% { opacity: 0; transform: scale(1.55); }',
+    '}',
+    '@media (prefers-reduced-motion: reduce) {',
+    `  [${BADGE_ATTR}] .sb-dot, [${BADGE_ATTR}] .sb-dot::after { animation: none !important; }`,
+    `  [${BADGE_ATTR}] .sb-dot::after { opacity: .25; }`,
     '}',
     /* 宿主浅色主题：角标是深色卡片的浅色变体（与面板的浅色令牌同源）。 */
     '@media (prefers-color-scheme: light) {',
@@ -1103,8 +1116,9 @@ function renderBadge(
   if (working) {
     const dot = el('i', 'sb-dot')
     const tone = STATE_TONE[state.state] ?? STATE_TONE.hooked
+    dot.style.color = tone
     dot.style.background = tone
-    dot.style.boxShadow = `0 0 7px ${tone}`
+    dot.style.boxShadow = `0 0 8px ${tone}`
     container.appendChild(dot)
   } else {
     container.appendChild(el('span', 'sb-arrow', '›'))

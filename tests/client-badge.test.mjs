@@ -85,6 +85,7 @@ test('客户端角标：设计稿 04 的卡片式结构与 panel 大窗外壳', 
   }
   assert.ok(source.includes('FIN_SVG'), '角标应使用鲸鱼背鳍标记')
   assert.ok(source.includes('sb-dot') && source.includes('sb-arrow'), '进行中状态点 / 空闲箭头')
+  assert.ok(source.includes('width: 10px; height: 10px') && source.includes('dsh-companion-halo'), '运行状态点应放大并带呼吸光晕')
   assert.ok(source.includes('font-size: 13px; font-weight: 500'), '角标主行字号对齐宿主侧栏')
   assert.ok(source.includes('font-size: 12.5px; color:'), '角标运行状态字号至少与宿主侧栏一致')
   assert.ok(source.includes('/api/balance'), '余额应从伴侣 API 拉取，显示在左下角')
