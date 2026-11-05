@@ -1,6 +1,6 @@
 # npm 发布流程
 
-以 `@qiuzhiyei/dsh-companion` 为例。当前 npm 最新版本是 `2.1.1`，下面按发布 `2.2.0` 演示。
+本文以 `@qiuzhiyei/dsh-companion` 为例，示例把 `2.1.1` 升到 `2.2.0`。
 
 ## 一、进入仓库
 

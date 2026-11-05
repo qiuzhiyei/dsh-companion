@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/icon.svg" width="84" alt="DSH Companion" />
 
-# DSH Companion 2.1.1
+# DSH Companion 2.2.0
 
 A companion plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
@@ -19,6 +19,14 @@ Desktop pet · live status · usage stats · history search · budget/balance ·
 <p align="center">
   <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/docs/images/pet.png" width="270" alt="DSH Companion — whale girl" />
 </p>
+
+## What's new in 2.2.0
+
+- **Multi-task pet status**: concurrent tasks each get a row, and a single task uses the same row format — project · phase · elapsed — instead of falling back to the global single-task bubble.
+- **Per-task phases and colors**: waiting for the model, streaming output, and running a tool use amber, cyan, and blue; the pet's soft glow follows the most active phase.
+- **Aggregated badge**: today's total on the first line, running-task count on the second, and per-task project/phase/tokens in the tooltip, so the badge no longer duplicates the pet.
+- **Adaptive bubble width**: short lines shrink to their content; long lines wrap only at 320px.
+- **Resilient pet image**: failed loads show a placeholder and retry, no clickable transparent square remains, plus a ground shadow, gentle sway and subtle 3D pointer tilt.
 
 ## 2.1.1 fixes
 
@@ -37,9 +45,9 @@ Desktop pet · live status · usage stats · history search · budget/balance ·
 
 | Area | Capability |
 | --- | --- |
-| **Desktop pet** | Start / thinking / output / wrap-up / done / failure animations; status bubbles; petting, dragging, idle roaming and sitting reminders |
+| **Desktop pet** | Start / thinking / output / wrap-up / done / failure animations; per-task rows and phase colors; petting, dragging, idle roaming and sitting reminders |
 | **5 skins** | Whale girl JK, secretary, police, hanfu and qipao — each with its own expressions, motions and voice |
-| **Bottom-left badge** | Current task, today's tokens, running state, balance and peak/off-peak; click to open the full panel |
+| **Bottom-left badge** | Today's tokens, running-task count, balance and peak/off-peak; per-task details in the tooltip; click to open the full panel |
 | **History search** | Sidebar entry; All / Messages / Conversations; full-session progressive scan; click to open, jump to the turn and highlight the transcript |
 | **Current conversation search** | Ctrl+F or the header button; searches loaded messages; 1–10 candidates (default 3, can be hidden); click to jump and highlight |
 | **Shared highlight color** | Settings → Shortcuts → Search highlight color; current search, history snippets and transcript hits use the same color |
