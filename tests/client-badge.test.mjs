@@ -93,6 +93,9 @@ test('客户端角标：设计稿 04 的卡片式结构与 panel 大窗外壳', 
   assert.ok(source.includes('法定节假日'), '角标峰谷说明要覆盖法定节假日')
   assert.ok(source.includes('isOffPeakNow') && source.includes('闲时') && source.includes('高峰'), '缺峰谷文案')
   assert.ok(source.includes('renderBadge(container, state, stats, balanceInfo)'), '余额需参与角标渲染')
+  assert.ok(source.includes('state.tasks') && source.includes('个任务运行中'), '角标应聚合显示运行任务数')
+  assert.ok(source.includes('今日 ${fmtTokens(today)} token'), '角标主行应固定显示今日总量')
+  assert.ok(source.includes('taskPhaseText') || source.includes("p === 'tool' ? '执行工具'"), '角标 tooltip 应显示任务阶段')
   assert.ok(!source.includes('pet-emoji'), '旧 emoji 角标应已移除')
   // 面板大窗：52px 深色标题栏 + 1280×920 上限 + 设计稿图标
   for (const cls of ['pm-icon', 'pm-title', 'pm-sub', 'pm-live', 'pm-close']) {

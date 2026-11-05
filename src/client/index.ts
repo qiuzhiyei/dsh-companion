@@ -88,6 +88,7 @@ interface TaskPayload {
   model: string
   provider: string
   startTime: number
+  phase?: 'waiting' | 'streaming' | 'tool'
   tokens: { totalTokens: number; inputTokens: number; outputTokens: number }
 }
 
@@ -96,9 +97,10 @@ interface PetStatePayload {
   state: string
   label: string
   task: TaskPayload | null
+  tasks?: TaskPayload[]
   lastResult: { status: string; durationMs: number; tokens: { totalTokens: number } } | null
   paused: boolean
-  settings: { currency: string }
+  settings: { currency: string; privacyMode?: boolean }
   /** 当前生效的中国法定节假日（北京时间 YYYY-MM-DD）。 */
   holidays?: string[]
 }
@@ -1045,26 +1047,25 @@ function renderBadge(
   }
   container.style.display = ''
 
-  const working = state.task !== null && state.task !== undefined
+  const tasks = Array.isArray(state.tasks) && state.tasks.length
+    ? state.tasks
+    : (state.task ? [state.task] : [])
+  const working = tasks.length > 0
   const today = stats?.totalTokens ?? 0
+  const privacy = !!state.settings.privacyMode
 
   const icon = el('span', 'sb-icon')
   icon.innerHTML = FIN_SVG
   container.appendChild(icon)
 
   const text = el('span', 'sb-text')
-  const main = el(
-    'b',
-    '',
-    working && state.task
-      ? `${fmtTokens(state.task.tokens.totalTokens)} token`
-      : `今日 ${fmtTokens(today)} token`,
-  )
+  // 主行永远是今日总量：不随某个任务开始/结束跳动；单任务读数放 tooltip。
+  const main = el('b', '', `今日 ${fmtTokens(today)} token`)
   const sub = el('span', '')
   const bits: string[] = []
-  if (working && state.task) {
-    // 进行中：第二行只用任务名 + 状态词，读数留给第一行（设计稿 04）。
-    sub.textContent = `${state.task.project || state.label || '任务'} · 进行中`
+  if (working) {
+    // 角标只做聚合，具体项目名交给桌宠/tooltip，避免和桌宠重复。
+    sub.textContent = `${tasks.length} 个任务运行中`
   } else {
     bits.push(`${stats?.tasks ?? 0} 个任务`)
     const cost = Number(stats?.cost) || 0
@@ -1110,15 +1111,26 @@ function renderBadge(
   }
 
   const lines = ['DSH 伴侣']
-  if (working && state.task) {
-    lines.push(`${state.task.project || state.label || '任务'} · 已 ${fmtElapsed(state.task.startTime, Date.now())}`)
-    lines.push(`当前 ${state.task.tokens.totalTokens.toLocaleString()} token · 今日 ${today.toLocaleString()} tokens`)
-    if ((stats?.cost ?? 0) > 0) {
+  const phaseText = (p?: TaskPayload['phase']): string =>
+    p === 'tool' ? '执行工具' : p === 'streaming' ? '输出中' : '等待模型'
+  if (working) {
+    lines.push(`${tasks.length} 个任务运行中`)
+    const shown = tasks.slice(0, 4)
+    for (let i = 0; i < shown.length; i++) {
+      const t = shown[i]
+      const name = privacy ? `任务 ${i + 1}` : (t.project || t.model || '未命名任务')
+      const bits = [name, phaseText(t.phase), `已 ${fmtElapsed(t.startTime, Date.now())}`]
+      if (!privacy) bits.push(`${fmtTokens(t.tokens.totalTokens)} token`)
+      lines.push('● ' + bits.join(' · '))
+    }
+    if (tasks.length > shown.length) lines.push(`还有 ${tasks.length - shown.length} 个任务`)
+    lines.push(`今日 ${today.toLocaleString()} tokens`)
+    if (!privacy && (stats?.cost ?? 0) > 0) {
       const sym = state.settings.currency === 'USD' ? '$' : '¥'
       lines.push(`今日 ${sym}${(stats?.cost ?? 0).toFixed(2)}`)
     }
   } else {
-    lines.push(`今日 ${today.toLocaleString()} tokens · ${stats?.tasks ?? 0} 任务`)
+    lines.push(`空闲 · 今日 ${stats?.tasks ?? 0} 个任务 · ${today.toLocaleString()} tokens`)
     if ((stats?.cost ?? 0) > 0) {
       const sym = state.settings.currency === 'USD' ? '$' : '¥'
       lines.push(`今日 ${sym}${(stats?.cost ?? 0).toFixed(2)}`)
