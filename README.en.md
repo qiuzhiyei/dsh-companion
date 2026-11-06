@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/icon.svg" width="84" alt="DSH Companion" />
 
-# DSH Companion 2.2.0
+# DSH Companion 2.2.1
 
 A companion plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
@@ -19,6 +19,14 @@ Desktop pet · live status · usage stats · history search · budget/balance ·
 <p align="center">
   <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/docs/images/pet.png" width="270" alt="DSH Companion — whale girl" />
 </p>
+
+## 2.2.1 fixes
+
+- **Session deletion no longer leaves "Ungrouped" residue**: files are removed first and the workspace detachment happens only after success; a locked file returns `file-busy` instead of orphaning the session.
+- **Ungrouped cleanup**: session management now lists disk-only orphan sessions and allows deleting them.
+- **Bulk delete UX reworked**: the bottom action bar is gone; the top-right **Delete selected (N)** button sticks to the top, and confirmation is a fixed, viewport-centered dialog.
+- **Immediate removal**: deleting from the panel notifies the main window to hide the sidebar row; startup reconciliation hides stale rows no longer present in the backend.
+- **Running/completed status dots**: breathing while running, steady when completed, cleared when opening the session; fixed dots no longer bleed through scroll containers; the bottom-left badge breathing dot is now truly circular.
 
 ## What's new in 2.2.0
 
@@ -184,11 +192,6 @@ pnpm run build
 pnpm test
 ```
 
-- Architecture, slots, pitfalls and design decisions: [AGENTS.md](https://github.com/qiuzhiyei/dsh-companion/blob/main/AGENTS.md).
-- Tests: `node --test`, currently **149**.
-- `dist/` is committed; always run `pnpm run build` before publishing.
-- Demo: `node demo.mjs` (mock loop, no DSH needed).
-
 ## License
 
-[MIT](LICENSE) © 2026 QiuWenXiong
+[MIT](LICENSE) © 2026 QiuZhiYe

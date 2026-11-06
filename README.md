@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/icon.svg" width="84" alt="DSH 伴侣" />
 
-# DSH 伴侣 2.2.0
+# DSH 伴侣 2.2.1
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的伴侣插件
 
@@ -19,6 +19,14 @@
 <p align="center">
   <img src="https://raw.githubusercontent.com/qiuzhiyei/dsh-companion/main/docs/images/pet.png" width="270" alt="DSH 伴侣 · 鲸鱼娘" />
 </p>
+
+## 2.2.1 修复
+
+- **会话删除不再产生“未分组”残留**：改为先删文件、成功后才从工作区除名；文件锁定时返回 `file-busy`，不会先除名留下孤儿。
+- **未分组可清理**：会话管理会列出磁盘上无归属的孤儿会话，并允许删除。
+- **面板批量删除重做**：移除底部批量条，右上角「删除所选（N）」吸顶；确认框改为视口固定居中，滚动时不再跟随列表。
+- **删除后立即消失**：面板删除会通知主窗口隐藏侧栏行；启动时对账后端已不存在的残留行。
+- **运行/完成状态点**：运行中呼吸、完成后常亮，点进会话清除；固定点不再穿透滚动容器；左下角角标呼吸灯修正为正圆。
 
 ## 2.2.0 更新
 
@@ -184,11 +192,6 @@ pnpm run build
 pnpm test
 ```
 
-- 双半边架构、槽位、坑位和设计决策见 [AGENTS.md](https://github.com/qiuzhiyei/dsh-companion/blob/main/AGENTS.md)。
-- 测试：`node --test`，当前 **149** 项。
-- 构建产物 `dist/` 纳入版本库；发布前务必先 `pnpm run build`。
-- 演示：`node demo.mjs`（mock 自动循环，不需要 DSH）。
-
 ## License
 
-[MIT](LICENSE) © 2026 QiuWenXiong
+[MIT](LICENSE) © 2026 QiuZhiYe
