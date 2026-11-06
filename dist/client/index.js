@@ -161,13 +161,15 @@ function ensureStyle() {
         '  color: #46e5c3; background: rgba(70,229,195,.08); border-color: rgba(70,229,195,.20);',
         '}',
         `[${BADGE_ATTR}] .sb-dot {`,
-        '  width: 10px; height: 10px; border-radius: 50%; flex: none; justify-self: end; position: relative;',
-        '  margin-right: 2px; background: currentColor;',
+        '  width: 10px; height: 10px; aspect-ratio: 1; flex: none; justify-self: end; position: relative;',
+        '  border-radius: 50% !important; corner-shape: round !important; margin-right: 2px;',
+        '  background: radial-gradient(circle, currentColor 0 46%, transparent 52%);',
+        '  filter: drop-shadow(0 0 4px currentColor);',
         '  animation: dsh-companion-breath 2s ease-in-out infinite;',
         '}',
         `[${BADGE_ATTR}] .sb-dot::after {`,
-        '  content: ""; position: absolute; inset: -4px; border-radius: 50%;',
-        '  border: 1px solid currentColor; opacity: 0; pointer-events: none;',
+        '  content: ""; position: absolute; inset: -4px; border-radius: 50% !important;',
+        '  corner-shape: round !important; border: 1px solid currentColor; opacity: 0; pointer-events: none;',
         '  animation: dsh-companion-halo 2s ease-out infinite;',
         '}',
         `[${BADGE_ATTR}] .sb-arrow {`,
@@ -1038,8 +1040,6 @@ function renderBadge(container, state, stats, balance) {
         const dot = el('i', 'sb-dot');
         const tone = STATE_TONE[state.state] ?? STATE_TONE.hooked;
         dot.style.color = tone;
-        dot.style.background = tone;
-        dot.style.boxShadow = `0 0 8px ${tone}`;
         container.appendChild(dot);
     }
     else {
@@ -3072,11 +3072,37 @@ function mountBadge() {
     const startAttentionDots = () => {
         if (attentionFrame !== 0)
             return;
+        const visibleTarget = (target, r) => {
+            const cx = r.left + r.width / 2;
+            const cy = r.top + r.height / 2;
+            if (cx < 0 || cx > window.innerWidth || cy < 0 || cy > window.innerHeight)
+                return false;
+            const row = target.closest('[data-row-key^="session:"]') ?? target;
+            // 最近滚动祖先的视口：行滚出侧栏滚动区后，固定点不能继续贴着屏幕坐标跑。
+            let ancestor = row.parentElement;
+            while (ancestor !== null) {
+                const overflowY = getComputedStyle(ancestor).overflowY;
+                if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'hidden') {
+                    const box = ancestor.getBoundingClientRect();
+                    if (cy < box.top || cy > box.bottom)
+                        return false;
+                    break;
+                }
+                ancestor = ancestor.parentElement;
+            }
+            const hit = document.elementFromPoint(cx, cy);
+            if (hit === null)
+                return false;
+            if (hit === target || target.contains(hit) || hit === row || row.contains(hit))
+                return true;
+            // body/html 是透明背景层；滚动边界已经单独校验过，可以放行。
+            return hit === document.body || hit === document.documentElement;
+        };
         const tick = (now) => {
             const t = (Math.sin(now / 300) + 1) / 2;
             for (const [target, entry] of attentionDots) {
                 const r = target.getBoundingClientRect();
-                if (r.width === 0 || r.bottom < 0 || r.top > window.innerHeight) {
+                if (r.width === 0 || !visibleTarget(target, r)) {
                     entry.dot.style.display = 'none';
                     continue;
                 }

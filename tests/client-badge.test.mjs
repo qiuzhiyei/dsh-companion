@@ -86,6 +86,8 @@ test('客户端角标：设计稿 04 的卡片式结构与 panel 大窗外壳', 
   assert.ok(source.includes('FIN_SVG'), '角标应使用鲸鱼背鳍标记')
   assert.ok(source.includes('sb-dot') && source.includes('sb-arrow'), '进行中状态点 / 空闲箭头')
   assert.ok(source.includes('width: 10px; height: 10px') && source.includes('dsh-companion-halo'), '运行状态点应放大并带呼吸光晕')
+  assert.ok(source.includes('corner-shape: round') && source.includes('radial-gradient(circle, currentColor'), '角标圆点应强制正圆')
+  assert.ok(source.includes('elementFromPoint(cx, cy)'), '会话行固定圆点不应穿透滚动容器/吸顶栏')
   assert.ok(source.includes('data-row-key') && source.includes('data-state="ongoing"'), '会话行光环应只包裹原生运行转圈')
   assert.ok(source.includes('visibility: hidden') && source.includes('dsh-companion-spinner-dot'), '方案 B 应隐藏原生环并显示呼吸圆点')
   assert.ok(source.includes('syncAttentionDots') && source.includes('requestAnimationFrame'), '呼吸圆点需要 JS 动画与 DOM 同步')
