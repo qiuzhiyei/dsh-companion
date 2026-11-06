@@ -135,14 +135,12 @@ export class SessionDeleter {
         catch (error) {
             return { ok: false, error: 'internal', message: `读取注册表失败: ${error.message}` };
         }
-        if (!workspace) {
-            // 宿主承诺「归档从不触碰 workspace 槽位」，正常会话必有归属；兜底
-            // 放行只存在于全局归档/置顶集合的无归属 id（同样可删）。
-            const inGlobal = this.readIdSet(registry, 'archivedSessionIds').has(sessionId) ||
-                this.readIdSet(registry, 'pinnedSessionIds').has(sessionId);
-            if (!inGlobal) {
-                return { ok: false, error: 'session-not-found', message: `会话 ${sessionId} 不在任何工作区中` };
-            }
+        const inGlobal = this.readIdSet(registry, 'archivedSessionIds').has(sessionId) ||
+            this.readIdSet(registry, 'pinnedSessionIds').has(sessionId);
+        const sessionDir = await this.findSessionDir(sessionId);
+        const projcacheFile = await this.findProjcache(sessionId);
+        if (!workspace && !inGlobal && sessionDir === null && projcacheFile === null) {
+            return { ok: false, error: 'session-not-found', message: `会话 ${sessionId} 不在任何工作区中` };
         }
         // 安全闸门 ①：companion 自己跟踪的运行中任务（探测异常按未运行处理，
         // 宿主活动探测仍是主闸门）。
@@ -170,6 +168,25 @@ export class SessionDeleter {
         catch {
             /* 探测不可用视为不活跃 */
         }
+        // 先删文件，成功后才从工作区除名。旧顺序在文件锁定时会留下
+        // “已除名但文件还在”的孤儿，DSH 会把它显示到「未分组」且再也删不掉。
+        if (sessionDir !== null || projcacheFile !== null) {
+            const remove = this.deps.remove ?? defaultRemove;
+            for (const target of [sessionDir, projcacheFile]) {
+                if (target === null)
+                    continue;
+                try {
+                    await remove(target);
+                }
+                catch (error) {
+                    return {
+                        ok: false,
+                        error: 'file-busy',
+                        message: `会话文件被占用，尚未从工作区移除；请关闭该会话后重试（${error.message}）`,
+                    };
+                }
+            }
+        }
         // ① registry 除名（GUI 列表实时消失）；无归属 id 跳过。
         if (workspace) {
             try {
@@ -182,38 +199,13 @@ export class SessionDeleter {
         // ② 全局归档/置顶集合清理（幂等；失败不影响删除结果）。
         await registry.unarchiveSession(sessionId).catch(() => { });
         await registry.unpinSession(sessionId).catch(() => { });
-        // ③ 文件彻底删除。
-        const deletedAt = (this.deps.now ?? Date.now)();
-        const sessionDir = await this.findSessionDir(sessionId);
-        const projcacheFile = await this.findProjcache(sessionId);
-        if (sessionDir === null && projcacheFile === null) {
-            // 冷会话从未落盘：没有文件可删，除名即完成。
-            return { ok: true, sessionId, workspaceId: workspace?.id ?? null, deleted: false, pending: false };
-        }
-        const remove = this.deps.remove ?? defaultRemove;
-        let lastError = null;
-        for (const target of [sessionDir, projcacheFile]) {
-            if (target === null)
-                continue;
-            try {
-                await remove(target);
-            }
-            catch (error) {
-                // 被占用（GUI 打开中的会话在 Windows 上持有句柄）：记 pending 补删。
-                lastError = error.message;
-            }
-        }
-        if (lastError === null) {
-            return { ok: true, sessionId, workspaceId: workspace?.id ?? null, deleted: true, pending: false };
-        }
-        await this.appendPending({
+        return {
+            ok: true,
             sessionId,
-            sessionDir,
-            projcacheFile,
-            deletedAt,
-            lastError,
-        }).catch(() => { });
-        return { ok: true, sessionId, workspaceId: workspace?.id ?? null, deleted: false, pending: true };
+            workspaceId: workspace?.id ?? null,
+            deleted: sessionDir !== null || projcacheFile !== null,
+            pending: false,
+        };
     }
     /**
      * 列出 registry 里的全部会话（含归档/置顶），附标题、磁盘占用、最后活动。
@@ -262,6 +254,16 @@ export class SessionDeleter {
             if (!owner.has(id))
                 order.push(id);
         }
+        // 磁盘上存在但不在任何 workspace 的会话（典型是旧删除流程留下的孤儿，
+        // DSH 会显示在「未分组」）。把它们也纳入清单，才能被选中删除。
+        const diskDirs = await this.scanSessionDirs();
+        const seen = new Set(order);
+        for (const id of diskDirs.keys()) {
+            if (!owner.has(id) && !seen.has(id)) {
+                seen.add(id);
+                order.push(id);
+            }
+        }
         const sessions = [];
         let totalSizeBytes = 0;
         for (const id of order) {
@@ -269,7 +271,7 @@ export class SessionDeleter {
             if (!SESSION_ID_PATTERN.test(id))
                 continue;
             const ws = owner.get(id) ?? null;
-            const dir = await this.findSessionDir(id);
+            const dir = diskDirs.get(id) ?? await this.findSessionDir(id);
             let sizeBytes = null;
             let lastActivityAt = null;
             if (dir !== null) {
@@ -391,26 +393,36 @@ export class SessionDeleter {
     }
     /** 扫描 ~/.dsh/sessions/<workspace 编码>/ 找到会话目录（不依赖编码规则）。 */
     async findSessionDir(sessionId) {
+        const dirs = await this.scanSessionDirs();
+        return dirs.get(sessionId) ?? null;
+    }
+    /** 所有磁盘会话目录：sessionId → 绝对路径（同一 id 取第一个命中）。 */
+    async scanSessionDirs() {
         const root = join(this.deps.dshHome, 'sessions');
+        const result = new Map();
         let encoded;
         try {
             const entries = await readdir(root, { withFileTypes: true });
             encoded = entries.filter((e) => e.isDirectory()).map((e) => e.name);
         }
         catch {
-            return null;
+            return result;
         }
         for (const name of encoded) {
-            const candidate = join(root, name, sessionId);
+            let children;
             try {
-                if ((await stat(candidate)).isDirectory())
-                    return candidate;
+                const entries = await readdir(join(root, name), { withFileTypes: true });
+                children = entries.filter((e) => e.isDirectory() && SESSION_ID_PATTERN.test(e.name)).map((e) => e.name);
             }
             catch {
-                /* 下一个编码目录 */
+                continue;
+            }
+            for (const id of children) {
+                if (!result.has(id))
+                    result.set(id, join(root, name, id));
             }
         }
-        return null;
+        return result;
     }
     async findProjcache(sessionId) {
         const candidate = join(this.deps.dshHome, 'storages', 'session_projcache', 'sessions', `${sessionId}.json`);

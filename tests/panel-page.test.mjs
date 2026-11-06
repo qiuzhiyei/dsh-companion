@@ -136,7 +136,7 @@ test('会话页：清单 + 多选 + 搜索排序 + 批量彻底删除', () => {
   for (const id of [
     'smSummary', 'smBody', 'smSelAll', 'smQ', 'smSort', 'smSelArchived', 'smSelEmpty',
     'smSelNone', 'smRefresh', 'smConfirm', 'smConfirmText', 'smConfirmYes', 'smConfirmNo',
-    'smDelete', 'smDeleteBottom', 'bulkBar', 'bulkCount', 'bulkSize', 'smCancelSel', 'sel-count',
+    'smDelete', 'sel-count',
   ]) {
     assert.ok(html.includes('id="' + id + '"'), '缺会话锚点 ' + id)
   }
@@ -147,6 +147,13 @@ test('会话页：清单 + 多选 + 搜索排序 + 批量彻底删除', () => {
   assert.ok(html.includes("sortBy === 'size'") && html.includes("sortBy === 'msg'"), '排序分支')
   assert.ok(html.includes("fetchJSON('/api/dsh-sessions'"), '列表端点')
   assert.ok(html.includes('/api/dsh-sessions/delete-many'), '批量删除端点')
+  assert.ok(html.includes('dsh-companion:sessions-deleted'), '面板删除后应通知主窗口隐藏侧栏行')
+  assert.ok(html.includes('class="sm-confirm-box"') && html.includes('align-items:center'), '删除确认框应居中而非贴底')
+  assert.ok(html.includes('position:sticky') && html.includes('id="smDelete"'), '右上角删除按钮应固定在顶部')
+  assert.ok(html.includes('top:calc(-1 * var(--page-pad,16px))'), '吸顶栏必须盖住 page-body 的顶部内边距，避免透明缝')
+  assert.ok(html.includes("appendChild(smConfirmEl)") && html.includes('parentElement !== document.body'), '确认框必须移出 pane 才能固定视口')
+  assert.ok(!html.includes('id="bulkBar"') && !html.includes('smDeleteBottom'), '不应再有底部批量删除条')
+  assert.ok(!html.includes('.bulk-bar,.sm-confirm{position:fixed'), '确认条不应再与底部浮条共用贴底定位')
   assert.ok(html.includes('不可恢复'), '确认条必须明示不可恢复')
   assert.ok(html.includes('esc(mask(s.title))'), '会话标题必须走隐私打码')
   assert.ok(html.includes('esc(mask(s.workspaceTitle))'), '工作区名必须走隐私打码')
@@ -154,8 +161,7 @@ test('会话页：清单 + 多选 + 搜索排序 + 批量彻底删除', () => {
   assert.ok(html.includes('smErrorText'), '错误态文案')
   assert.ok(html.includes('读不到会话清单'), '错误空态标题')
   // 面板页隐藏惯例 = hidden 属性（不是悬浮页的 .hidden 类）
-  assert.ok(html.includes('id="bulkBar" hidden'), '批量浮条初始应 hidden')
-  assert.ok(html.includes('id="smConfirm" hidden'), '确认条初始应 hidden')
+  assert.ok(html.includes('id="smConfirm" hidden'), '确认框初始应 hidden')
   assert.ok(html.includes('[hidden]{display:none !important}'), 'hidden 属性必须有全局隐藏规则')
 })
 

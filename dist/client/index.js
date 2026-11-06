@@ -183,6 +183,14 @@ function ensureStyle() {
         `  [${BADGE_ATTR}] .sb-dot, [${BADGE_ATTR}] .sb-dot::after { animation: none !important; }`,
         `  [${BADGE_ATTR}] .sb-dot::after { opacity: .25; }`,
         '}',
+        /* ---- 宿主会话行：隐藏原生环形 spinner，换成纯呼吸圆点（方案 B） ---- */
+        '[data-row-key^="session:"] svg[data-state="ongoing"] { visibility: hidden !important; }',
+        '.dsh-companion-spinner-dot {',
+        '  position: fixed; width: 24px; height: 24px;',
+        '  transform: translate(-50%, -50%); border-radius: 50% !important; corner-shape: round !important;',
+        '  pointer-events: none; z-index: 9999;',
+        '  background: radial-gradient(circle, #46e5c3 0 38%, rgba(70,229,195,.55) 43%, rgba(70,229,195,.12) 62%, transparent 72%);',
+        '}',
         /* 宿主浅色主题：角标是深色卡片的浅色变体（与面板的浅色令牌同源）。 */
         '@media (prefers-color-scheme: light) {',
         `  [${BADGE_ATTR}] {`,
@@ -246,11 +254,15 @@ function ensureStyle() {
         `  [${PANEL_ATTR}] .pm-box { width: 100vw; height: 100vh; border-radius: 0; border: none; }`,
         `  [${PANEL_ATTR}] .pm-sub, [${PANEL_ATTR}] .pm-live { display: none; }`,
         '}',
-        /* ---- 删除会话确认弹窗 ---- */
+        /* ---- 删除会话确认弹窗（dialog 顶层，避免被页面滚动容器带到底部） ---- */
         `[${CONFIRM_ATTR}] {`,
-        '  position: fixed; inset: 0; z-index: 10002; display: flex;',
-        '  align-items: center; justify-content: center; background: rgba(0,0,0,.45);',
+        '  position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none;',
+        '  margin: 0; padding: 0; border: 0; background: transparent; z-index: 10002;',
+        '  align-items: center; justify-content: center;',
         '}',
+        `[${CONFIRM_ATTR}][open] { display: flex; }`,
+        `[${CONFIRM_ATTR}]:not([open]) { display: none; }`,
+        `[${CONFIRM_ATTR}]::backdrop { background: rgba(0,0,0,.48); }`,
         `[${CONFIRM_ATTR}] .dc-box {`,
         '  width: min(420px, 92vw); border-radius: 12px; padding: 18px 20px;',
         '  background: var(--dsw-alias-bg-base, #f4f6f8);',
@@ -1126,11 +1138,64 @@ async function resolveServerUrl() {
         cachedServerUrl = found.url;
     return cachedServerUrl;
 }
+/** 删除成功后把宿主残留行从侧栏隐藏，避免宿主把已删会话重新渲染到「未分组」。 */
+const hiddenDeletedSessions = new Set();
+function hideDeletedSessionRow(sessionId) {
+    const selector = `[data-row-key=${JSON.stringify(`session:${sessionId}`)}]`;
+    for (const row of document.querySelectorAll(selector))
+        row.style.display = 'none';
+    if (hiddenDeletedSessions.has(sessionId))
+        return;
+    const style = document.createElement('style');
+    style.setAttribute('data-dsh-companion-hidden-session', sessionId);
+    style.textContent = `${selector}{display:none!important}`;
+    document.head.appendChild(style);
+    hiddenDeletedSessions.add(sessionId);
+    if (hiddenDeletedSessions.size > 500) {
+        const oldest = hiddenDeletedSessions.values().next().value;
+        if (typeof oldest === 'string') {
+            hiddenDeletedSessions.delete(oldest);
+            document
+                .querySelector(`style[data-dsh-companion-hidden-session=${JSON.stringify(oldest)}]`)
+                ?.remove();
+        }
+    }
+}
+/** 删除后对账：后端已经不存在的会话，侧栏里残留的行一律隐藏。 */
+async function reconcileSidebarSessions(includeSelected = false) {
+    const url = await resolveServerUrl();
+    if (url === '')
+        return;
+    try {
+        const res = await fetch(`${url}/api/dsh-sessions`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok)
+            return;
+        const data = (await res.json());
+        if (data?.ok !== true || !Array.isArray(data.sessions))
+            return;
+        const alive = new Set();
+        for (const session of data.sessions) {
+            if (typeof session.sessionId === 'string')
+                alive.add(session.sessionId);
+        }
+        for (const row of document.querySelectorAll('[data-row-key^="session:"]')) {
+            if (!includeSelected && row.getAttribute('aria-selected') === 'true')
+                continue;
+            const key = row.getAttribute('data-row-key') ?? '';
+            const sessionId = key.startsWith('session:') ? key.slice('session:'.length) : '';
+            if (sessionId !== '' && !alive.has(sessionId))
+                hideDeletedSessionRow(sessionId);
+        }
+    }
+    catch {
+        /* 对账失败不影响已完成的删除 */
+    }
+}
 /** 二次确认弹窗：确认后 POST 伴侣服务执行 registry 除名 + 软删回收站。 */
 function openDeleteConfirm(sessionId, displayTitle) {
     if (document.querySelector(`[${CONFIRM_ATTR}]`) !== null)
         return;
-    const root = document.createElement('div');
+    const root = document.createElement('dialog');
     root.setAttribute(CONFIRM_ATTR, '');
     root.setAttribute('data-dsh-plugin', 'dsh-companion');
     root.setAttribute('data-dsh-part', 'session-delete-confirm');
@@ -1151,8 +1216,14 @@ function openDeleteConfirm(sessionId, displayTitle) {
     root.appendChild(box);
     function close() {
         document.removeEventListener('keydown', onKey, true);
+        if (root.open)
+            root.close();
         root.remove();
     }
+    root.addEventListener('cancel', (ev) => {
+        ev.preventDefault();
+        close();
+    });
     function onKey(ev) {
         if (ev.key === 'Escape')
             close();
@@ -1190,7 +1261,9 @@ function openDeleteConfirm(sessionId, displayTitle) {
                 });
                 const data = (await res.json().catch(() => null));
                 if (res.ok && data?.ok === true) {
+                    hideDeletedSessionRow(sessionId);
                     close();
+                    void reconcileSidebarSessions(true);
                     showToast(data.pending === true
                         ? '会话已删除；个别文件被占用，稍后自动清除'
                         : '会话已彻底删除');
@@ -1211,6 +1284,7 @@ function openDeleteConfirm(sessionId, displayTitle) {
         })();
     });
     document.body.appendChild(root);
+    root.showModal();
 }
 /**
  * 官方槽位注入：会话行 "…" 菜单的「删除会话…」。
@@ -2984,6 +3058,115 @@ function mountBadge() {
     let discoverTimer = 0;
     let panelModal = null;
     let offPanelKeys = null;
+    let attentionFrame = 0;
+    const attentionDots = new Map();
+    const unreadSessions = new Set();
+    let previousActive = new Set();
+    const ATTENTION_DOT_CLASS = 'dsh-companion-spinner-dot';
+    const sessionRow = (sessionId) => document.querySelector(`[data-row-key="session:${CSS.escape(sessionId)}"]`);
+    const stopAttentionDots = () => {
+        if (attentionFrame !== 0)
+            window.cancelAnimationFrame(attentionFrame);
+        attentionFrame = 0;
+    };
+    const startAttentionDots = () => {
+        if (attentionFrame !== 0)
+            return;
+        const tick = (now) => {
+            const t = (Math.sin(now / 300) + 1) / 2;
+            for (const [target, entry] of attentionDots) {
+                const r = target.getBoundingClientRect();
+                if (r.width === 0 || r.bottom < 0 || r.top > window.innerHeight) {
+                    entry.dot.style.display = 'none';
+                    continue;
+                }
+                entry.dot.style.display = 'block';
+                entry.dot.style.left = `${r.left + r.width / 2}px`;
+                entry.dot.style.top = `${r.top + r.height / 2}px`;
+                if (entry.kind === 'running') {
+                    entry.dot.style.opacity = (0.35 + t * 0.65).toFixed(2);
+                    entry.dot.style.transform = `translate(-50%, -50%) scale(${(0.78 + t * 0.30).toFixed(3)})`;
+                }
+                else {
+                    // 已完成待查看：常亮，不呼吸。
+                    entry.dot.style.opacity = '1';
+                    entry.dot.style.transform = 'translate(-50%, -50%) scale(1)';
+                }
+            }
+            attentionFrame = window.requestAnimationFrame(tick);
+        };
+        attentionFrame = window.requestAnimationFrame(tick);
+    };
+    const syncAttentionDots = () => {
+        const desired = new Map();
+        for (const spinner of document.querySelectorAll('[data-row-key^="session:"] svg[data-state="ongoing"]')) {
+            desired.set(spinner, 'running');
+        }
+        for (const sessionId of [...unreadSessions]) {
+            const row = sessionRow(sessionId);
+            if (row === null)
+                continue;
+            if (row.getAttribute('aria-selected') === 'true') {
+                unreadSessions.delete(sessionId);
+                continue;
+            }
+            const target = row.querySelector('span[class*="_slot"]') ?? row;
+            if (!desired.has(target))
+                desired.set(target, 'unread');
+        }
+        for (const [target, entry] of [...attentionDots]) {
+            if (!desired.has(target)) {
+                entry.dot.remove();
+                attentionDots.delete(target);
+            }
+        }
+        for (const [target, kind] of desired) {
+            let entry = attentionDots.get(target);
+            if (entry === undefined) {
+                const dot = document.createElement('span');
+                dot.className = ATTENTION_DOT_CLASS;
+                dot.setAttribute('aria-hidden', 'true');
+                dot.dataset.kind = kind;
+                document.body.appendChild(dot);
+                entry = { dot, kind };
+                attentionDots.set(target, entry);
+            }
+            else if (entry.kind !== kind) {
+                entry.kind = kind;
+                entry.dot.dataset.kind = kind;
+            }
+        }
+        if (attentionDots.size > 0)
+            startAttentionDots();
+        else
+            stopAttentionDots();
+    };
+    const trackTaskTransitions = (snapshot) => {
+        const active = new Set((snapshot.tasks ?? []).map((task) => task.sessionId).filter(Boolean));
+        for (const sessionId of active)
+            unreadSessions.delete(sessionId);
+        for (const sessionId of previousActive) {
+            if (active.has(sessionId))
+                continue;
+            const row = sessionRow(sessionId);
+            if (row !== null && row.getAttribute('aria-selected') === 'true')
+                continue;
+            unreadSessions.add(sessionId);
+        }
+        previousActive = active;
+        syncAttentionDots();
+    };
+    const onSessionClick = (ev) => {
+        const target = ev.target instanceof Element ? ev.target : null;
+        const row = target?.closest('[data-row-key^="session:"]') ?? null;
+        if (row === null)
+            return;
+        const key = row.getAttribute('data-row-key') ?? '';
+        const sessionId = key.startsWith('session:') ? key.slice('session:'.length) : '';
+        if (sessionId !== '' && unreadSessions.delete(sessionId))
+            syncAttentionDots();
+    };
+    document.addEventListener('click', onSessionClick, true);
     const openPanelModal = () => {
         if (serverUrl === '' || panelModal === null)
             return;
@@ -3047,12 +3230,15 @@ function mountBadge() {
                 stats = null;
                 balanceInfo = null;
                 balanceFetchedAt = 0;
+                previousActive = new Set();
+                syncAttentionDots();
                 container.style.display = 'none';
                 setLiveText('本地服务 · 离线');
                 return;
             }
             state = s;
             stats = st;
+            trackTaskTransitions(s);
             setLiveText('本地服务 · 已连接');
             renderBadge(container, state, stats, balanceInfo);
             // 余额/峰谷：用户要求放在左下角角标。余额 30s 拉一次，不阻塞状态/统计。
@@ -3073,11 +3259,17 @@ function mountBadge() {
         panelModal = buildPanelModal(() => closePanelModal());
     }
     const observer = new MutationObserver(() => {
-        if (container.isConnected)
-            return;
-        placeBadge(container);
+        if (!container.isConnected)
+            placeBadge(container);
+        syncAttentionDots();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-state', 'aria-selected'],
+    });
+    syncAttentionDots();
     pollTimer = window.setInterval(() => {
         if (document.visibilityState === 'visible')
             refresh();
@@ -3091,6 +3283,11 @@ function mountBadge() {
         stopped = true;
         window.clearInterval(pollTimer);
         window.clearInterval(discoverTimer);
+        stopAttentionDots();
+        for (const entry of attentionDots.values())
+            entry.dot.remove();
+        attentionDots.clear();
+        document.removeEventListener('click', onSessionClick, true);
         closePanelModal();
         observer.disconnect();
         removeStyle();
@@ -3110,6 +3307,24 @@ const entry = {
             if (dispose !== undefined)
                 ctx.effect(() => dispose);
             mountSessionDeleteAction(ctx, modRequire);
+            // 面板 iframe 删除成功后通知主窗口隐藏侧栏残留行。
+            const onPanelMessage = (ev) => {
+                const data = ev.data;
+                if (data === null || data.type !== 'dsh-companion:sessions-deleted')
+                    return;
+                if (!Array.isArray(data.sessionIds))
+                    return;
+                for (const id of data.sessionIds) {
+                    if (typeof id === 'string' && id !== '')
+                        hideDeletedSessionRow(id);
+                }
+                void reconcileSidebarSessions(true);
+            };
+            window.addEventListener('message', onPanelMessage);
+            ctx.effect(() => () => window.removeEventListener('message', onPanelMessage));
+            // 启动后对账一次：宿主重启后仍残留的旧「未分组」行，后端已没有就隐藏。
+            const reconcileTimer = window.setTimeout(() => void reconcileSidebarSessions(), 3000);
+            ctx.effect(() => () => window.clearTimeout(reconcileTimer));
             // 推理等级：不改模型选择器，只在官方「推理等级」行上接管点击。
             mountReasoningControl(ctx);
             // Ctrl+F：当前对话内搜索；纯 DOM，不需要宿主槽位。

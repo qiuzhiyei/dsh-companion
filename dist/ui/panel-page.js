@@ -81,7 +81,7 @@ export function panelPageHTML() {
     border-radius:var(--r-ctl);color:var(--ink-2);background:var(--field-bg);transition:all .15s}
   .icon-btn:hover{border-color:var(--cyan-dim);color:var(--cyan);background:var(--cyan-wash)}
   .icon-btn svg{width:14px;height:14px;display:block}
-  .page-body{overflow-y:auto;padding:16px 24px 22px;scrollbar-width:thin;min-height:0}
+  .page-body{overflow-y:auto;padding:var(--page-pad,16px) 24px 22px;scrollbar-width:thin;min-height:0;--page-pad:16px}
   .pane{display:block}
   .pane:not([hidden]){animation:paneIn .22s var(--ease) both}
   @keyframes paneIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -447,7 +447,9 @@ export function panelPageHTML() {
   }
 
   /* ================= 会话 ================= */
-  .sessions-bar{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+  .sessions-bar{display:flex;align-items:center;gap:12px;margin:0 0 10px;padding:10px 0 10px;
+    flex-wrap:wrap;position:sticky;top:calc(-1 * var(--page-pad,16px));z-index:30;background:var(--win);
+    border-bottom:1px solid var(--line);box-shadow:0 8px 12px var(--win)}
   .check-all{display:flex;align-items:center;gap:7px;font-size:calc(14.5px * var(--ui-scale, 1));color:var(--ink-2);cursor:pointer}
   .check-all input{accent-color:var(--cyan);width:14px;height:14px;cursor:pointer}
   #sel-count,#smSummary{font-family:var(--font-mono);font-size:calc(13px * var(--ui-scale, 1));color:var(--ink-3)}
@@ -484,14 +486,13 @@ export function panelPageHTML() {
   .tag.pin{background:rgba(240,182,74,.12);color:var(--warn-ink)}
   .empty-sessions{padding:46px 18px;text-align:center;color:var(--ink-3);font-size:calc(14px * var(--ui-scale, 1));
     border:1px dashed var(--line-strong);border-radius:12px}
-  .bulk-bar,.sm-confirm{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:40;
-    display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;font-size:calc(14px * var(--ui-scale, 1));
-    max-width:min(1180px,calc(100vw - 44px));box-shadow:0 10px 30px rgba(0,0,0,.42);
-    backdrop-filter:blur(10px)}
-  .bulk-bar{background:rgba(11,27,36,.96);border:1px solid var(--line-strong);color:var(--ink)}
-  .bulk-text b{color:var(--cyan);font-weight:600;font-variant-numeric:tabular-nums}
-  .bulk-spacer{flex:1}
-  .sm-confirm{background:rgba(58,28,28,.96);border:1px solid #b05252;color:var(--bad-ink)}
+  .sm-confirm{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+    padding:24px;background:rgba(0,0,0,.48)}
+  .sm-confirm-box{width:min(460px,calc(100vw - 32px));display:flex;flex-direction:column;gap:14px;
+    padding:18px 20px;border-radius:12px;background:rgba(58,28,28,.97);border:1px solid #b05252;
+    color:var(--bad-ink);font-size:calc(14px * var(--ui-scale, 1));
+    box-shadow:0 24px 70px rgba(0,0,0,.55)}
+  .sm-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
   .sm-confirm .btn{flex:none}
   .sm-confirm .btn.danger{background:rgba(143,58,52,.9);color:#ffe3da;border-color:#b05252}
 
@@ -660,8 +661,8 @@ export function panelPageHTML() {
     .err-box.good{background:rgba(14,138,116,.05)}
     .session:hover{box-shadow:0 8px 18px rgba(20,45,60,.06)}
     .session.is-selected{background:rgba(14,138,116,.06);border-color:rgba(14,138,116,.3)}
-    .bulk-bar{background:rgba(255,255,255,.97)}
-    .sm-confirm{background:rgba(253,234,229,.97);border-color:#d98d7e;color:#a13c29}
+    .sm-confirm{background:rgba(20,45,60,.32)}
+    .sm-confirm-box{background:rgba(253,234,229,.98);border-color:#d98d7e;color:#a13c29}
     .official-box,.act-btn{background:#fff}
     .retention-confirm{background:rgba(253,234,229,.96);border-color:#d98d7e;color:#a13c29}
     .save-toast{background:#fff;box-shadow:0 10px 24px rgba(20,45,60,.16)}
@@ -674,7 +675,7 @@ export function panelPageHTML() {
     .nav-item{padding:8px 2px 7px}
     .nav-item span{display:none}
     .page-head{padding:0 18px}
-    .page-body{padding:14px 18px 18px}
+    .page-body{padding:14px 18px 18px;--page-pad:14px}
     .mc-value{font-size:calc(20px * var(--ui-scale, 1))}
   }
   @media (max-width:880px){
@@ -719,7 +720,7 @@ export function panelPageHTML() {
     .drawer,.drawer-scrim{bottom:0}
     .metric-grid{grid-template-columns:1fr}
     .page-head p{display:none}
-    .page-body{padding:12px 12px 16px}
+    .page-body{padding:12px 12px 16px;--page-pad:12px}
   }
   @media (prefers-reduced-motion: reduce){
     *,*::before,*::after{animation-duration:.001ms !important;transition-duration:.001ms !important}
@@ -954,17 +955,14 @@ export function panelPageHTML() {
             </details>
           </div>
           <ul class="session-list" id="smBody"></ul>
-          <div class="bulk-bar" id="bulkBar" hidden>
-            <span class="bulk-text">已选 <b id="bulkCount">0</b> 个 · 合计 <b id="bulkSize">0 B</b></span>
-            <span class="bulk-spacer"></span>
-            <button class="btn sm" id="smCancelSel" type="button">取消选择</button>
-            <button class="btn sm danger" id="smDeleteBottom" type="button">删除所选</button>
-          </div>
           <div class="sm-confirm" id="smConfirm" hidden>
-            <span id="smConfirmText"></span>
-            <span class="bulk-spacer"></span>
-            <button class="btn sm" id="smConfirmNo" type="button">取消</button>
-            <button class="btn sm danger" id="smConfirmYes" type="button">确认彻底删除</button>
+            <div class="sm-confirm-box">
+              <span id="smConfirmText"></span>
+              <div class="sm-confirm-actions">
+                <button class="btn sm" id="smConfirmNo" type="button">取消</button>
+                <button class="btn sm danger" id="smConfirmYes" type="button">确认彻底删除</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -2250,7 +2248,7 @@ function renderSessions() {
   if (q) {
     list = list.filter((s) =>
       (s.title || '').toLowerCase().includes(q) ||
-      (s.workspaceTitle || '').toLowerCase().includes(q) ||
+      (s.workspaceTitle || '未分组').toLowerCase().includes(q) ||
       (s.sessionId || '').toLowerCase().includes(q))
   }
   if (sortBy === 'size') list.sort((a, b) => (b.sizeBytes || 0) - (a.sizeBytes || 0))
@@ -2258,7 +2256,7 @@ function renderSessions() {
   else list.sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0))
   const rows = list.map((s) => {
     const title = s.title ? esc(mask(s.title)) : '（无标题）'
-    const wsName = s.workspaceTitle ? esc(mask(s.workspaceTitle)) : ''
+    const wsName = s.workspaceTitle ? esc(mask(s.workspaceTitle)) : '未分组'
     const tags = (s.archived ? '<span class="tag arch">归档</span>' : '') + (s.pinned ? '<span class="tag pin">置顶</span>' : '')
     const msg = s.messageCount == null ? '—' : String(s.messageCount)
     return '<li class="session' + (smSelected.has(s.sessionId) ? ' is-selected' : '') + '" data-sid="' + esc(s.sessionId) + '">' +
@@ -2278,16 +2276,10 @@ function renderSessions() {
   $('smSummary').textContent = smError
     ? smErrorText
     : ((q ? '匹配 ' + list.length + ' / ' : '共 ') + smSessions.length + ' 个会话 · 磁盘占用 ' + fmtSize(smLastTotal))
-  $('sel-count').textContent = '已选 ' + n + ' 项'
-  $('bulkCount').textContent = String(n)
-  $('bulkSize').textContent = fmtSize(selSize)
-  $('bulkBar').hidden = n === 0 || !$('smConfirm').hidden
+  $('sel-count').textContent = n === 0 ? '已选 0 项' : '已选 ' + n + ' 项 · ' + fmtSize(selSize)
   const del = $('smDelete')
   del.disabled = n === 0
   del.textContent = n > 0 ? '删除所选（' + n + '）' : '删除所选'
-  const bottom = $('smDeleteBottom')
-  bottom.disabled = n === 0
-  bottom.textContent = n > 0 ? '删除所选（' + n + '）' : '删除所选'
   $('smSelAll').checked = list.length > 0 && list.every((s) => smSelected.has(s.sessionId))
   $('smSelAll').indeterminate = n > 0 && !$('smSelAll').checked
   updateHead()
@@ -2338,17 +2330,21 @@ $('smSelArchived').onclick = () => smSelectWhere((s) => s.archived)
 $('smSelEmpty').onclick = () => smSelectWhere(smIsEmpty)
 $('smSelNone').onclick = () => { smSelected.clear(); renderSessions() }
 $('smRefresh').onclick = () => loadSessions(true)
-$('smCancelSel').onclick = () => { smSelected.clear(); renderSessions() }
+// 确认框必须移出 .pane：pane 的入场 transform 会创建 containing block，
+// 导致 position:fixed 相对 pane 而不是视口，滚动时会跟着列表跑。
+const smConfirmEl = document.getElementById('smConfirm')
+if (smConfirmEl && smConfirmEl.parentElement !== document.body) {
+  document.body.appendChild(smConfirmEl)
+}
+
 function askDelete() {
   if (smSelected.size === 0) return
   let size = 0
   for (const s of smSessions) { if (smSelected.has(s.sessionId) && s.sizeBytes) size += s.sizeBytes }
   $('smConfirmText').textContent = '将彻底删除 ' + smSelected.size + ' 个会话（' + fmtSize(size) + '），不可恢复；运行中的会话会被逐个跳过。'
   $('smConfirm').hidden = false
-  $('bulkBar').hidden = true
 }
 $('smDelete').onclick = askDelete
-$('smDeleteBottom').onclick = askDelete
 $('smConfirmNo').onclick = () => { $('smConfirm').hidden = true; renderSessions() }
 $('smConfirmYes').onclick = async (e) => {
   const btn = e.currentTarget
@@ -2376,6 +2372,14 @@ $('smConfirmYes').onclick = async (e) => {
       (first.message || first.error || '未知') + (fails.length > 1 ? ' 等' : '') + '）', false)
   } else {
     showToast('✓ 已删除 ' + data.deletedCount + ' 个会话', true)
+  }
+  // 通知 DSH 主窗口：这些侧栏行已经被删掉，别再残留到「未分组」。
+  const deletedIds = (data.results || []).filter((r) => r.ok).map((r) => r.sessionId)
+  if (deletedIds.length > 0 && window.parent !== window) {
+    window.parent.postMessage(
+      { type: 'dsh-companion:sessions-deleted', sessionIds: deletedIds },
+      '*',
+    )
   }
   smSelected.clear()
   dropCache()

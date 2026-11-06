@@ -20,6 +20,7 @@ import { SessionDeleter } from '../dist/ui-enhance/session-manager.js'
 const SID = 'session-97c66d45-80fa-43a3-b55b-8f32fd182ebb'
 const OTHER = 'session-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const ORPHAN = 'session-cccccccc-1111-2222-3333-444444444444'
+const DISK_ORPHAN = 'session-dddddddd-1111-2222-3333-444444444444'
 
 async function setup(opts = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-companion-sm-'))
@@ -82,7 +83,7 @@ async function setup(opts = {}) {
     ...(opts.remove !== undefined ? { remove: opts.remove } : {}),
     now: () => 1_760_000_000_000,
   })
-  return { root, dataDir, sessionDir, projcacheFile, ws, calls, deleter }
+  return { root, dshHome, dataDir, sessionDir, projcacheFile, ws, calls, deleter }
 }
 
 async function exists(path) {
@@ -204,7 +205,7 @@ test('会话删除：isTrackedRunning 抛异常 → 按未运行处理（宿主�
   }
 })
 
-test('会话删除：文件被占用 → 除名照常完成、pending 登记、补删后彻底消失', async () => {
+test('会话删除：文件被占用 → 不除名、无 pending；释放后可重试成功', async () => {
   let failOnce = true
   const remove = async (target) => {
     if (failOnce && target.endsWith(SID)) {
@@ -218,22 +219,20 @@ test('会话删除：文件被占用 → 除名照常完成、pending 登记、�
   const s = await setup({ remove })
   try {
     const out = await s.deleter.delete(SID)
-    assert.equal(out.ok, true, '除名已成功，删除整体算完成')
-    assert.equal(out.deleted, false)
-    assert.equal(out.pending, true)
-    assert.equal(await exists(s.sessionDir), true, '被占用的目录还在原处等待补删')
-    const pendingFile = join(s.dataDir, 'delete-pending.json')
-    const pending = JSON.parse(await readFile(pendingFile, 'utf8'))
-    assert.equal(pending.length, 1)
-    assert.equal(pending[0].sessionId, SID)
-    assert.equal(pending[0].sessionDir, s.sessionDir)
-    assert.match(pending[0].lastError, /EBUSY/)
+    assert.equal(out.ok, false, '文件没删掉就不能先除名')
+    assert.equal(out.error, 'file-busy')
+    assert.deepEqual(s.calls.detach, [], '不得留下未分组孤儿')
+    assert.ok(s.ws.sessionIds.includes(SID), '工作区归属保持原样')
+    assert.equal(await exists(s.sessionDir), true, '被占用的目录还在原处')
+    assert.equal(await exists(join(s.dataDir, 'delete-pending.json')), false, '不再登记 pending')
 
-    // 句柄释放后：补删成功，pending 清空。
-    await s.deleter.retryPending()
+    // 句柄释放后重试：先删文件，再除名。
+    const retry = await s.deleter.delete(SID)
+    assert.equal(retry.ok, true)
+    assert.equal(retry.deleted, true)
+    assert.equal(retry.pending, false)
+    assert.deepEqual(s.calls.detach, [SID])
     assert.equal(await exists(s.sessionDir), false)
-    const pendingAfter = JSON.parse(await readFile(pendingFile, 'utf8'))
-    assert.deepEqual(pendingAfter, [])
   } finally {
     await rm(s.root, { recursive: true, force: true })
   }
@@ -277,9 +276,14 @@ test('会话删除：冷会话（从未落盘）→ 除名即完成', async () =
 test('会话清单：标题/消息数/占用/归档置顶标记，无归属归档 id 并入', async () => {
   const s = await setup({ archivedIds: [OTHER, ORPHAN], pinnedIds: [SID] })
   try {
+    // 旧删除流程留下的磁盘孤儿：不在 workspace，也不在全局集合。
+    const orphanDir = join(s.dshHome, 'sessions', '--D-test-orphan--', DISK_ORPHAN)
+    await mkdir(orphanDir, { recursive: true })
+    await writeFile(join(orphanDir, 'session.v4.jsonl.zstd'), 'dummy')
+
     const out = await s.deleter.listSessions()
     assert.equal(out.ok, true)
-    assert.equal(out.sessions.length, 3, '工作区槽位 ∪ 全局集合，去重')
+    assert.equal(out.sessions.length, 4, '工作区槽位 ∪ 全局集合 ∪ 磁盘孤儿，去重')
     const byId = new Map(out.sessions.map((x) => [x.sessionId, x]))
 
     const main = byId.get(SID)
@@ -304,6 +308,17 @@ test('会话清单：标题/消息数/占用/归档置顶标记，无归属归�
     assert.ok(orphan, '只在全局归档集合里的 id 也要列出')
     assert.equal(orphan.workspaceId, null)
     assert.equal(orphan.archived, true)
+
+    const diskOrphan = byId.get(DISK_ORPHAN)
+    assert.ok(diskOrphan, '磁盘孤儿也要列出，才能被删除')
+    assert.equal(diskOrphan.workspaceId, null)
+    assert.equal(diskOrphan.hasFiles, true)
+
+    // 无工作区归属的磁盘孤儿可以真正删掉文件。
+    const removed = await s.deleter.delete(DISK_ORPHAN)
+    assert.equal(removed.ok, true)
+    assert.equal(removed.deleted, true)
+    assert.equal(await exists(orphanDir), false)
 
     assert.ok(out.totalSizeBytes >= main.sizeBytes)
   } finally {

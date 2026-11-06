@@ -371,7 +371,9 @@ export class PetServer {
             ? 404
             : result.error === 'session-active'
               ? 409
-              : result.error === 'registry-unavailable'
+              : result.error === 'file-busy'
+                ? 409
+                : result.error === 'registry-unavailable'
                 ? 503
                 : 500
       return json(res, result, status)
